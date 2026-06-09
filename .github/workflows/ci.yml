@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The isolation gate runs here. If tenant isolation ever breaks, CI goes red.
+jobs:
+  isolation-gate:
+    name: Tenant isolation gate
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ergane # owner / migrator (superuser in the image)
+          POSTGRES_PASSWORD: ergane
+          POSTGRES_DB: ergane
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ergane -d ergane"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # App + tests connect as the least-privileged role (RLS applies).
+      DATABASE_URL: postgresql://app_user:app_user@localhost:5432/ergane?schema=public
+      # Migrations + test reset connect as the owner.
+      DIRECT_DATABASE_URL: postgresql://ergane:ergane@localhost:5432/ergane?schema=public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create least-privileged app_user role
+        env:
+          PGPASSWORD: ergane
+        run: |
+          psql -h localhost -U ergane -d ergane -v ON_ERROR_STOP=1 \
+            -f docker/postgres/init/01-app-user.sql
+
+      - name: Apply migrations (as owner) + grant app_user
+        run: pnpm prisma migrate deploy
+
+      - name: Run isolation gate (as app_user)
+        run: pnpm test

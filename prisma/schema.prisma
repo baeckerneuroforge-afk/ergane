@@ -1,0 +1,94 @@
+// ergane — Prisma schema.
+//
+// `url`       → DATABASE_URL        → app_user (runtime + Prisma Client + tests).
+// `directUrl` → DIRECT_DATABASE_URL → owner    (used by `prisma migrate`/`db`).
+//
+// The schema below mirrors the hand-authored SQL migration. The migration is the
+// source of truth for everything Prisma cannot express: RLS, FORCE RLS, policies,
+// the append-only audit trigger, and the least-privilege GRANTs to app_user.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum Role {
+  owner
+  admin
+  member
+
+  @@map("role")
+}
+
+enum ActorType {
+  human
+  agent
+
+  @@map("actor_type")
+}
+
+/// Tenant root. NOT row-level-secured (a tenant cannot exist "inside" itself).
+/// `id` is an internal UUID; `clerkOrgId` links it to the verified Clerk org.
+model Organization {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerkOrgId String   @unique @map("clerk_org_id")
+  name       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  memberships    Membership[]
+  knowledgeItems KnowledgeItem[]
+  auditLogs      AuditLog[]
+
+  @@map("organizations")
+}
+
+/// Tenant-scoped. RLS ENABLE + FORCE. org_id NOT NULL + FK.
+model Membership {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  userId    String   @map("user_id")
+  role      Role
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@map("memberships")
+}
+
+/// Example tenant table. RLS ENABLE + FORCE. org_id NOT NULL + FK.
+model KnowledgeItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  title     String
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("knowledge_items")
+}
+
+/// Append-only audit trail. RLS ENABLE + FORCE. INSERT/SELECT only — UPDATE and
+/// DELETE are blocked by both the absence of a policy and a trigger.
+model AuditLog {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String    @map("org_id") @db.Uuid
+  actorId   String    @map("actor_id")
+  actorType ActorType @map("actor_type")
+  action    String
+  target    String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("audit_log")
+}
