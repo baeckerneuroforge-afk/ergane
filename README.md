@@ -151,15 +151,16 @@ const items = await withTenant(orgId, (tx) =>
 
 ## Data model
 
-| Table             | Tenant-scoped? | RLS         | Notes                                                |
-| ----------------- | -------------- | ----------- | ---------------------------------------------------- |
-| `organizations`   | no (root)      | —           | internal `id` (uuid) + unique `clerk_org_id` + `name`|
-| `memberships`     | **yes**        | ENABLE+FORCE| `(org_id, user_id)` unique, `role` ∈ owner/admin/member |
-| `knowledge_items` | **yes**        | ENABLE+FORCE| the example tenant table                             |
-| `audit_log`       | **yes**        | ENABLE+FORCE| append-only (policy + privilege + trigger)           |
+| Table             | Tenant-scoped?   | RLS         | Notes                                                |
+| ----------------- | ---------------- | ----------- | ---------------------------------------------------- |
+| `organizations`   | **yes** (root)   | ENABLE+FORCE| self-row policy keyed on `id`; internal `id` (uuid) + unique `clerk_org_id` + `name` |
+| `memberships`     | **yes**          | ENABLE+FORCE| `(org_id, user_id)` unique, `role` ∈ owner/admin/member |
+| `knowledge_items` | **yes**          | ENABLE+FORCE| the example tenant table                             |
+| `audit_log`       | **yes**          | ENABLE+FORCE| append-only (policy + privilege + trigger)           |
 
 Every table except `organizations` has `org_id UUID NOT NULL` with a foreign key
-to `organizations(id)`.
+to `organizations(id)`. `organizations` is the tenant root, so its own RLS policy
+keys on `id` (which *is* the tenant key) instead of `org_id`.
 
 ---
 
@@ -215,6 +216,23 @@ so it tests the real enforcement. It **must stay green**; CI fails if it doesn't
 | 4   | A query with **no** tenant context returns **no** rows (fails closed).         |
 | 5   | `app_user` cannot bypass RLS: not superuser, no `BYPASSRLS`, not owner; cannot disable RLS; cannot delete audit rows. |
 
+Beyond the canonical 5, the suite adds **regression guards** (hardening added
+after an adversarial security review) so the gate can't silently weaken:
+
+- asserts `ENABLE` **and** `FORCE` RLS are on for all four tenant tables (a dropped
+  `FORCE` is invisible to app_user-only tests otherwise);
+- proves an `UPDATE` cannot **move** a row to another tenant (WITH CHECK on UPDATE);
+- positively checks cross-tenant **reads** for `memberships`, `audit_log`, and the
+  self-row `organizations` policy (not just the empty-context case);
+- proves the append-only `audit_log` **trigger** holds independently of RLS (via a
+  superuser connection that bypasses RLS but still hits the trigger);
+- asserts `app_user` lacks escalation privileges (`DELETE` org / `TRUNCATE` /
+  `_prisma_migrations`);
+- proves the tenant GUC **does not leak across transactions** on a reused
+  connection (tests pin a single connection to make this meaningful);
+- a `beforeAll` precondition refuses to run unless connected as the powerless
+  `app_user` — so a misconfigured role fails loudly instead of passing falsely.
+
 Run it: `pnpm test`. It also runs in CI (`.github/workflows/ci.yml`) against a
 real Postgres service container.
 
@@ -262,12 +280,15 @@ cross-tenant checks are designed to catch it.
   internal UUID as `uuidv5(clerkOrgId)` (`src/lib/uuid.ts`) — stable, no lookup
   table, computed only from the verified session's org id. `organizations.id` is
   this UUID; `clerk_org_id` is stored alongside.
-- **`organizations` has no RLS.** It is the tenant root (a tenant can't live
-  "inside itself"), and the spec scopes RLS to the three tenant tables. Org rows
-  hold no tenant business data (only an internal id, the Clerk org id, and a
-  name). `app_user` gets `SELECT/INSERT/UPDATE` but not `DELETE` here. Tightening
-  this later (RLS on `organizations` keyed on the deterministic id) is possible
-  without touching app code — noted as future work.
+- **`organizations` is self-row RLS-protected.** It is the tenant root, so its
+  policy keys on `id` (the tenant key = the deterministic UUIDv5 of the Clerk org
+  id) instead of `org_id`: a tenant can see/insert/update only its own org row and
+  can never enumerate other tenants' org metadata. `app_user` gets
+  `SELECT/INSERT/UPDATE` (not `DELETE`), each scoped by RLS to the current tenant's
+  row. Consequently the bootstrap upsert in `ensureOrgAndMembership()` (and the
+  seed) runs inside `withTenant(orgId)`. (An earlier draft left this table without
+  RLS; an adversarial review flagged that it made org-metadata isolation rest on
+  app-code discipline, contradicting the core promise — hence this change.)
 - **Two database URLs / roles.** `DATABASE_URL` = `app_user` (everything the app
   and tests do). `DIRECT_DATABASE_URL` = owner (only `prisma migrate` and test
   reset). Prisma uses `directUrl` for migrations and `url` for the client, so the

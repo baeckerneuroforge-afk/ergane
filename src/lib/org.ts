@@ -1,5 +1,4 @@
 import type { Role } from '@prisma/client';
-import { prisma } from './prisma';
 import { withTenant } from './tenant';
 import { clerkOrgIdToUuid } from './uuid';
 
@@ -19,23 +18,22 @@ export async function ensureOrgAndMembership(opts: {
 }): Promise<string> {
   const orgId = clerkOrgIdToUuid(opts.clerkOrgId);
 
-  // organizations has no RLS (it is the tenant root), so this upsert is safe
-  // without a tenant context. The id is deterministic, so it is idempotent.
-  await prisma.organization.upsert({
-    where: { clerkOrgId: opts.clerkOrgId },
-    create: { id: orgId, clerkOrgId: opts.clerkOrgId, name: opts.name },
-    update: { name: opts.name },
-  });
+  // Both tables are RLS-protected, so the whole bootstrap runs inside ONE tenant
+  // context. The org's `id` IS the tenant key, so its self-row policy accepts the
+  // INSERT/UPDATE (id = current_org). The id is deterministic → idempotent.
+  await withTenant(orgId, async (tx) => {
+    await tx.organization.upsert({
+      where: { id: orgId },
+      create: { id: orgId, clerkOrgId: opts.clerkOrgId, name: opts.name },
+      update: { name: opts.name },
+    });
 
-  // memberships IS tenant-scoped → the upsert must run inside the tenant context
-  // so RLS USING/WITH CHECK accept it.
-  await withTenant(orgId, (tx) =>
-    tx.membership.upsert({
+    await tx.membership.upsert({
       where: { orgId_userId: { orgId, userId: opts.userId } },
       create: { orgId, userId: opts.userId, role: opts.role },
       update: { role: opts.role },
-    }),
-  );
+    });
+  });
 
   return orgId;
 }

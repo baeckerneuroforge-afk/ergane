@@ -93,6 +93,19 @@ ALTER TABLE "audit_log"
 -- except a superuser (which the app never is) can sidestep it.
 -- =============================================================================
 
+-- --- organizations (tenant root): a tenant may see/modify ONLY its own row ----
+-- organizations.id IS the tenant key (the deterministic UUIDv5 of the Clerk org
+-- id), so the self-row predicate keys on `id` (not org_id). This stops org
+-- metadata (name, clerk_org_id) from being enumerable across tenants — enforced
+-- at the DB layer, not by app-code discipline. The bootstrap upsert in
+-- ensureOrgAndMembership()/seed runs INSIDE withTenant(orgId), so its
+-- INSERT/UPDATE satisfy WITH CHECK (id = current_org).
+ALTER TABLE "organizations" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "organizations" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "organizations_self_isolation" ON "organizations"
+    USING ("id" = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK ("id" = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
 -- --- memberships -------------------------------------------------------------
 ALTER TABLE "memberships" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "memberships" FORCE ROW LEVEL SECURITY;
@@ -150,9 +163,9 @@ CREATE TRIGGER audit_log_no_delete
 -- =============================================================================
 GRANT USAGE ON SCHEMA public TO app_user;
 
--- organizations: tenant root, no RLS. app_user may look up / create / rename org
--- rows (Clerk is the real source of truth) but may NOT delete them. Org rows hold
--- no tenant business data — only an internal id, the Clerk org id, and a name.
+-- organizations: tenant root, now RLS-protected (self-row policy above). app_user
+-- may look up / create / rename ONLY its own org row, and may NOT delete any org.
+-- The grant permits the command; RLS restricts it to the current tenant's row.
 GRANT SELECT, INSERT, UPDATE ON "organizations" TO app_user;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON "memberships" TO app_user;

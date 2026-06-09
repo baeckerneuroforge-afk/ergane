@@ -7,6 +7,12 @@ import { clerkOrgIdToUuid } from './uuid';
  * Map a Clerk organization role to our local Role enum. Clerk's default org
  * roles are "org:admin" and "org:member". We never derive "owner" from Clerk;
  * it exists for explicit, manual elevation only.
+ *
+ * NOTE (Phase 0-1): the mirrored `memberships.role` is ADVISORY. This foundation
+ * does not yet enforce intra-tenant RBAC (no business actions exist to gate). If
+ * you add role-gated actions later, enforce the check in the server action AND
+ * broaden this mapping to your custom Clerk role keys (failing closed to member
+ * only for genuinely unknown roles).
  */
 export function mapClerkRole(orgRole: string | null | undefined): Role {
   switch (orgRole) {

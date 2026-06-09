@@ -32,7 +32,8 @@ enum ActorType {
   @@map("actor_type")
 }
 
-/// Tenant root. NOT row-level-secured (a tenant cannot exist "inside" itself).
+/// Tenant root. RLS ENABLE + FORCE with a SELF-ROW policy keyed on `id` (which
+/// is the tenant key), so a tenant can see/modify only its own org row.
 /// `id` is an internal UUID; `clerkOrgId` links it to the verified Clerk org.
 model Organization {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

@@ -14,3 +14,14 @@ if (!process.env.DIRECT_DATABASE_URL) {
     'DIRECT_DATABASE_URL is not set. The test harness needs the owner connection to reset state between cases.',
   );
 }
+
+// Force the app_user client onto a SINGLE connection during tests. The suite is
+// serial, so this is safe — and it makes the "no-context / leak-across-tx" checks
+// meaningful: a bare query after a withTenant() transaction is guaranteed to run
+// on the SAME backend that just had app.current_org set, so asserting it returns
+// zero rows actually proves the transaction-local GUC was reset (not merely that
+// a fresh connection never had it).
+if (!/connection_limit=/.test(process.env.DATABASE_URL)) {
+  const sep = process.env.DATABASE_URL.includes('?') ? '&' : '?';
+  process.env.DATABASE_URL = `${process.env.DATABASE_URL}${sep}connection_limit=1`;
+}

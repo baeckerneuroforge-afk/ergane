@@ -16,13 +16,14 @@ const ORG_A = '11111111-1111-4111-8111-111111111111';
 const ORG_B = '22222222-2222-4222-8222-222222222222';
 
 async function seedOrg(id: string, clerkOrgId: string, name: string) {
-  await prisma.organization.upsert({
-    where: { id },
-    create: { id, clerkOrgId, name },
-    update: { name },
-  });
-
   await withTenant(id, async (tx) => {
+    // organizations is RLS-protected (self-row), so the upsert runs in-context.
+    await tx.organization.upsert({
+      where: { id },
+      create: { id, clerkOrgId, name },
+      update: { name },
+    });
+
     const item = await tx.knowledgeItem.create({
       data: {
         orgId: id,

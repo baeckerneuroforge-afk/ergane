@@ -23,9 +23,13 @@ export type Tx = Prisma.TransactionClient;
  *     validated it is a UUID).
  *
  * Pooling note: because the binding is transaction-local and lives inside a
- * single interactive transaction, this is also correct behind a transaction-mode
- * pooler (e.g. PgBouncer): the whole transaction runs on one pinned backend and
- * the GUC is reset when it ends. For local dev we connect directly (no pooler).
+ * single interactive transaction, the ISOLATION is correct behind a
+ * transaction-mode pooler (e.g. PgBouncer): the whole transaction runs on one
+ * pinned backend and the GUC is reset when it ends. Note that to RUN Prisma
+ * behind transaction-mode PgBouncer you must also add `pgbouncer=true` to
+ * DATABASE_URL (it disables Prisma's named prepared statements, which transaction
+ * pooling cannot keep alive) — this affects compatibility, not tenant isolation.
+ * For local dev we connect directly (no pooler), so it is not needed.
  */
 export async function withTenant<T>(
   orgId: string,
