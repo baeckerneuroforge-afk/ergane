@@ -1,9 +1,11 @@
 # ergane
 
-A **GDPR-native, multi-tenant (B2B) foundation**. This repo is **Phase 0–1 only**:
-the tenant-first fundament. There are **no business features** — just tenancy,
-auth/orgs, RBAC, an append-only audit log, and the isolation test gate that
-guards them.
+A **GDPR-native, multi-tenant (B2B) foundation**. Phase 0–1 built the
+tenant-first fundament: tenancy, auth/orgs, RBAC, an append-only audit log, and
+the isolation test gate that guards them. **Phase 2** adds the first feature on
+top of it: a tenant-isolated **knowledge base with semantic search and a RAG
+chat that answers with sources** — see
+[Knowledge base + RAG chat](#knowledge-base--rag-chat-phase-2).
 
 > **The one idea that matters:** tenant separation is enforced by the
 > **database** (PostgreSQL Row-Level Security with `FORCE`), **not** by
@@ -24,6 +26,7 @@ guards them.
   - [Option A — Docker (canonical)](#option-a--docker-canonical)
   - [Option B — local Postgres without Docker](#option-b--local-postgres-without-docker)
 - [The isolation test gate](#the-isolation-test-gate-pnpm-test)
+- [Knowledge base + RAG chat (Phase 2)](#knowledge-base--rag-chat-phase-2)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -157,6 +160,9 @@ const items = await withTenant(orgId, (tx) =>
 | `memberships`     | **yes**          | ENABLE+FORCE| `(org_id, user_id)` unique, `role` ∈ owner/admin/member |
 | `knowledge_items` | **yes**          | ENABLE+FORCE| the example tenant table                             |
 | `audit_log`       | **yes**          | ENABLE+FORCE| append-only (policy + privilege + trigger)           |
+| `documents`       | **yes**          | ENABLE+FORCE| knowledge-base documents (`source` ∈ upload/manual/transcript) |
+| `chunks`          | **yes**          | ENABLE+FORCE| embedded text chunks, `embedding vector(1024)` (pgvector) + HNSW index; composite FK `(document_id, org_id)` → same-tenant document only |
+| `chat_messages`   | **yes**          | ENABLE+FORCE| RAG chat history (`role` ∈ user/assistant)          |
 
 Every table except `organizations` has `org_id UUID NOT NULL` with a foreign key
 to `organizations(id)`. `organizations` is the tenant root, so its own RLS policy
@@ -235,6 +241,146 @@ after an adversarial security review) so the gate can't silently weaken:
 
 Run it: `pnpm test`. It also runs in CI (`.github/workflows/ci.yml`) against a
 real Postgres service container.
+
+**Phase 2 additions** (`tests/rag-isolation.test.ts`, same rules: runs as
+`app_user`, deterministic fake AI providers, zero network calls in CI):
+
+- RLS ENABLE **and** FORCE asserted for `documents`, `chunks`, `chat_messages`;
+- tenant A never reads B's documents/chunks/chat history — **including through
+  the vector similarity query**: a retrieval query that matches B's content
+  *verbatim* still returns none of B's chunks (with a positive control that B
+  itself finds them at ~1.0 similarity);
+- `INSERT` with a foreign `org_id` fails `WITH CHECK` on all three tables
+  (including a raw chunk insert with an embedding);
+- with **no** tenant context, plain and vector queries return **0 rows**;
+- the RAG flow end-to-end: grounded answer **with source titles**, the honest
+  "no verified knowledge" answer when nothing relevant exists, chat history
+  persisted, and `knowledge.ingested` / `chat.answered` audit entries written.
+
+---
+
+## Knowledge base + RAG chat (Phase 2)
+
+Wissen wird pro Tenant gespeichert, semantisch durchsuchbar gemacht und im Chat
+**mit Quellenangabe** beantwortet. Alles läuft durch dieselben Isolations-Bahnen
+wie Phase 0–1: jede neue Tabelle hat `org_id NOT NULL` + FK, RLS ENABLE+FORCE,
+die Standard-Policy auf `app.current_org`, und **jeder** Zugriff geht durch
+`withTenant()`.
+
+### Ingestion (`src/lib/rag/ingest.ts`)
+
+```
+ingestDocument({orgId, actorId, title, source, text})
+  1. chunkText()      — paragraph-aware sliding window (1200 chars, 200 overlap)
+  2. embedder.embed() — via the provider abstraction, OUTSIDE any transaction
+  3. ONE withTenant(orgId) transaction:
+       documents row  +  all chunks rows (raw SQL — pgvector column)
+       + logAudit('agent', 'knowledge.ingested', title)
+```
+
+The `chunks.embedding` column is `vector(1024)` (pgvector). Prisma cannot
+express that type (`Unsupported` in the schema), so chunk inserts and
+similarity queries are tagged-template raw SQL **inside `withTenant()`** — same
+tenant guarantees, RLS applies identically. `org_id` is always set explicitly
+on top (defense-in-depth), and a **composite FK `(document_id, org_id)`** makes
+a chunk structurally incapable of pointing at another tenant's document.
+
+### Retrieval (`src/lib/rag/retrieve.ts`)
+
+`retrieve({orgId, query, k})` embeds the query (`input_type: 'query'`), then
+runs cosine top-k (`embedding <=> $vec`) **inside `withTenant()`** with an
+additional explicit `WHERE c.org_id = $orgId`. Results carry the chunk content
+**and the document title — the source**. The HNSW index
+(`chunks_embedding_hnsw_idx`, `vector_cosine_ops`) accelerates this; RLS + the
+org filter are applied on top of the index scan (pgvector ≥ 0.8 iterative
+scans keep filtered ANN correct).
+
+### Answering (`src/lib/rag/answer.ts`)
+
+`answerQuestion({orgId, actorId, question})`:
+
+1. retrieve top-k chunks; drop everything below the **embedder's**
+   `relevanceThreshold` (similarity distributions are model-specific, so the
+   threshold lives on the provider, not in the RAG layer);
+2. **nothing relevant → no LLM call at all**: the fixed, honest answer
+   *„Dazu habe ich kein geprüftes Wissen in der Wissensbasis."* with zero
+   sources — hallucination is prevented structurally, and the system prompt
+   repeats the rule for the LLM path;
+3. otherwise the LLM gets ONLY the retrieved passages (each prefixed with its
+   `[document title]`) and must answer from them; sources = the used titles;
+4. user + assistant messages land in `chat_messages` and
+   `logAudit('agent', 'chat.answered', …)` in **one** `withTenant` transaction
+   after the answer exists (LLM calls never run inside an open DB transaction).
+
+UI: `/dashboard/knowledge` (list + ingest form + optional `.txt` upload, read
+server-side) and `/dashboard/chat` (history + question form; sources rendered
+under each answer). Both use `requireTenant()` + `ensureOrgAndMembership()`.
+
+### Provider abstraction (`src/lib/ai/`)
+
+LLM and embeddings are consumed ONLY through two interfaces:
+
+```ts
+interface EmbeddingProvider { dimensions; relevanceThreshold; embed(texts, inputType) }
+interface ChatProvider      { complete({system, messages, maxTokens}) }
+```
+
+| Adapter | Provider | Selected when |
+| ------- | -------- | ------------- |
+| `anthropic.ts` | Anthropic Messages API, `claude-opus-4-8` (override: `ANTHROPIC_MODEL`) | `ANTHROPIC_API_KEY` set |
+| `voyage.ts` | Voyage AI `voyage-3.5`, 1024 dims (Anthropic's embeddings partner — Anthropic has no embeddings endpoint) | `VOYAGE_API_KEY` set |
+| `fake.ts` | deterministic, offline (hashed bag-of-words embedder + context-echo chat) | no key, **non-production only** — production throws instead of silently faking |
+
+`src/lib/ai/index.ts` is the **only** place that decides the vendor. Routes,
+server actions and `lib/rag` never import a vendor SDK.
+
+**Switching the LLM to Claude on AWS Bedrock (EU) later:**
+
+1. `pnpm add @anthropic-ai/bedrock-sdk` and write `src/lib/ai/bedrock.ts`
+   implementing `ChatProvider` (constructor takes the AWS region, e.g.
+   `eu-central-1`, and resolves AWS credentials; model id becomes the Bedrock
+   EU model id, e.g. `eu.anthropic.claude-…`).
+2. Select it in `getChatProvider()` (e.g. keyed on `AI_CHAT_PROVIDER=bedrock`).
+3. Nothing else changes — prompts, RAG, UI, tests are provider-agnostic.
+   Embeddings stay on the `EmbeddingProvider` interface the same way; if the
+   embedding model's dimensionality changes, that requires a migration
+   (`vector(N)` is fixed in the schema) and re-ingestion.
+
+### pgvector
+
+- **Docker/CI (canonical):** the `pgvector/pgvector:pg16` image ships the
+  extension; the migration runs `CREATE EXTENSION IF NOT EXISTS vector` as
+  owner.
+- **Local without Docker:** `scripts/setup-local-db.sh` builds pgvector v0.8.4
+  from source against the Homebrew `postgresql@16` keg when it is missing
+  (idempotent).
+
+### Demo without Clerk (`pnpm demo:rag`)
+
+Clerk is integrated but **not configured** in this phase (placeholder keys, no
+auth bypass added — middleware and session path are untouched). The Definition
+of Done is therefore proven by `scripts/demo-rag.ts`, which drives the full
+pipeline through the exact same code paths as the UI (`withTenant` →
+`ingestDocument` → `answerQuestion`): it creates a demo org (seed pattern),
+ingests a sample document, asks one answerable question (must return the answer
+**with sources**) and one unanswerable question (must return the honest
+no-knowledge answer), and prints the audit trail. Without API keys it uses the
+deterministic fake providers; with `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY` set it
+uses the real ones.
+
+### Decisions taken on ambiguity (safer option)
+
+- **GRANTs are minimal:** `app_user` gets `SELECT, INSERT` only on the three
+  new tables — no feature needs UPDATE/DELETE yet; grant when one appears.
+- **`chat_messages` keeps the spec-fixed shape** (no sources column). So that
+  sources survive reloads, the assistant message is persisted with a marked
+  trailing `Quellen: …` line, which the chat UI splits back into a list.
+- **Embedding dimensionality is a constant** (`vector(1024)` = voyage-3.5;
+  the fake embedder matches). A different model size = new migration, on
+  purpose — silently mixing dimensionalities in one column is not possible.
+- **Relevance threshold is per embedding provider** (fake: 0.05 — bag-of-words
+  cosine runs low; voyage: 0.45), so the honest "no knowledge" answer behaves
+  sensibly with either.
 
 ---
 
@@ -315,8 +461,11 @@ cross-tenant checks are designed to catch it.
 ├─ prisma/
 │  ├─ schema.prisma                    # models (mirror of the SQL)
 │  ├─ migrations/0001_init/migration.sql # tables + RLS + FORCE + policies + trigger + grants
+│  ├─ migrations/0002_knowledge_base/migration.sql # pgvector + documents/chunks/chat_messages (+RLS, HNSW, grants)
 │  └─ seed.ts                          # two demo tenants (writes via withTenant)
-├─ scripts/setup-local-db.sh           # no-Docker local DB helper
+├─ scripts/
+│  ├─ setup-local-db.sh                # no-Docker local DB helper (builds pgvector if missing)
+│  └─ demo-rag.ts                      # pnpm demo:rag — full RAG pipeline without HTTP/login
 ├─ src/
 │  ├─ middleware.ts                    # Clerk: require user + active org
 │  ├─ lib/
@@ -325,9 +474,12 @@ cross-tenant checks are designed to catch it.
 │  │  ├─ tenant.ts                     # withTenant() — THE tenant boundary
 │  │  ├─ audit.ts                      # logAudit()
 │  │  ├─ org.ts                        # mirror Clerk org + membership
-│  │  └─ auth-context.ts               # requireTenant() — session → tenant context
-│  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard
-├─ tests/isolation.test.ts             # THE 5-test isolation gate
+│  │  ├─ auth-context.ts               # requireTenant() — session → tenant context
+│  │  ├─ ai/                           # provider abstraction: types + anthropic/voyage/fake adapters + factory
+│  │  └─ rag/                          # chunking, ingestDocument, retrieve, answerQuestion
+│  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat
+├─ tests/
+│  ├─ isolation.test.ts                # THE canonical isolation gate
+│  └─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR
 ```
-# ergane
