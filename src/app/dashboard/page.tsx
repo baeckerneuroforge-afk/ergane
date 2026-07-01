@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { withTenant } from '@/lib/tenant';
@@ -29,6 +30,10 @@ export default async function DashboardPage() {
         <p className="muted">
           Tenant <code>{orgSlug ?? clerkOrgId}</code> · you are <code>{role}</code>. Everything
           below is scoped to this organization by the database, not by this page.
+        </p>
+        <p className="muted">
+          Phase 2: <Link href="/dashboard/knowledge">Knowledge base</Link> ·{' '}
+          <Link href="/dashboard/chat">Knowledge chat</Link>
         </p>
       </section>
 

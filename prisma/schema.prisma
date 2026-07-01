@@ -32,6 +32,21 @@ enum ActorType {
   @@map("actor_type")
 }
 
+enum DocumentSource {
+  upload
+  manual
+  transcript
+
+  @@map("document_source")
+}
+
+enum ChatRole {
+  user
+  assistant
+
+  @@map("chat_role")
+}
+
 /// Tenant root. RLS ENABLE + FORCE with a SELF-ROW policy keyed on `id` (which
 /// is the tenant key), so a tenant can see/modify only its own org row.
 /// `id` is an internal UUID; `clerkOrgId` links it to the verified Clerk org.
@@ -44,6 +59,9 @@ model Organization {
   memberships    Membership[]
   knowledgeItems KnowledgeItem[]
   auditLogs      AuditLog[]
+  documents      Document[]
+  chunks         Chunk[]
+  chatMessages   ChatMessage[]
 
   @@map("organizations")
 }
@@ -75,6 +93,60 @@ model KnowledgeItem {
 
   @@index([orgId])
   @@map("knowledge_items")
+}
+
+/// Knowledge-base document (tenant-scoped). RLS ENABLE + FORCE. org_id NOT NULL
+/// + FK. The `[id, org_id]` unique constraint exists as the target of the
+/// composite FK from `chunks` (a chunk can never reference a foreign tenant's
+/// document — structurally, on top of RLS).
+model Document {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String         @map("org_id") @db.Uuid
+  title     String
+  source    DocumentSource
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  chunks       Chunk[]
+
+  @@unique([id, orgId])
+  @@index([orgId])
+  @@map("documents")
+}
+
+/// Embedded text chunk of a document (tenant-scoped). RLS ENABLE + FORCE.
+/// `embedding` is pgvector's vector(1024) — Prisma cannot express it, so it is
+/// declared Unsupported: chunk INSERTs and similarity queries go through
+/// $queryRaw inside withTenant() (src/lib/rag/).
+model Chunk {
+  id         String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String                      @map("org_id") @db.Uuid
+  documentId String                      @map("document_id") @db.Uuid
+  content    String
+  embedding  Unsupported("vector(1024)")
+  ord        Int
+  createdAt  DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  document     Document     @relation(fields: [documentId, orgId], references: [id, orgId], onDelete: Cascade)
+
+  @@unique([documentId, ord])
+  @@index([orgId])
+  @@map("chunks")
+}
+
+/// Chat history (tenant-scoped). RLS ENABLE + FORCE. org_id NOT NULL + FK.
+model ChatMessage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  role      ChatRole
+  content   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@map("chat_messages")
 }
 
 /// Append-only audit trail. RLS ENABLE + FORCE. INSERT/SELECT only — UPDATE and

@@ -7,7 +7,10 @@
 # least-privileged role `app_user`, which the init script below creates.
 services:
   postgres:
-    image: postgres:16
+    # pgvector/pgvector:pg16 = the official postgres:16 image + the pgvector
+    # extension BINARIES. The extension itself is created by the Prisma
+    # migration (CREATE EXTENSION, as owner); the image only has to ship it.
+    image: pgvector/pgvector:pg16
     container_name: ergane-postgres
     restart: unless-stopped
     environment:
