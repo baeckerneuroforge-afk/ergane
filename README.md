@@ -372,9 +372,14 @@ uses the real ones.
 
 - **GRANTs are minimal:** `app_user` gets `SELECT, INSERT` only on the three
   new tables — no feature needs UPDATE/DELETE yet; grant when one appears.
-- **`chat_messages` keeps the spec-fixed shape** (no sources column). So that
-  sources survive reloads, the assistant message is persisted with a marked
-  trailing `Quellen: …` line, which the chat UI splits back into a list.
+- **`chat_messages` keeps the spec-fixed shape** (no sources column). Sources
+  survive reloads via the **canonical sources format**: every grounded answer
+  ends with exactly one line `Quellen: <Titel1>, <Titel2>, …`, appended
+  deterministically by the RAG layer (`SOURCES_MARKER` in
+  `src/lib/rag/answer.ts`) — never by the LLM (the prompt forbids it, and any
+  model-emitted `Quellen:` line is stripped). The honest no-knowledge answer
+  has NO sources line. The chat UI parses the line back into a list; future
+  consumers (e.g. the skill engine) can rely on exactly this format.
 - **Embedding dimensionality is a constant** (`vector(1024)` = voyage-3.5;
   the fake embedder matches). A different model size = new migration, on
   purpose — silently mixing dimensionalities in one column is not possible.

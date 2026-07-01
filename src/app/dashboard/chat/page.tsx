@@ -8,7 +8,12 @@ import { askQuestion } from './actions';
 // Touches the session and tenant data → always dynamic.
 export const dynamic = 'force-dynamic';
 
-/** Split a persisted assistant message into answer text + source titles. */
+/**
+ * Split a persisted assistant message into answer text + source titles.
+ * Canonical format (see src/lib/rag/answer.ts): the grounded answer ends with
+ * one line `Quellen: <Titel1>, <Titel2>, …` — rendered here as a list, not as
+ * part of the answer text (no double display).
+ */
 function splitSources(content: string): { text: string; sources: string[] } {
   const idx = content.lastIndexOf(`\n\n${SOURCES_MARKER} `);
   if (idx === -1) return { text: content, sources: [] };
@@ -16,7 +21,7 @@ function splitSources(content: string): { text: string; sources: string[] } {
     text: content.slice(0, idx),
     sources: content
       .slice(idx + SOURCES_MARKER.length + 3)
-      .split(';')
+      .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
   };
