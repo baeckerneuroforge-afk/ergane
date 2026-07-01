@@ -13,6 +13,10 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
+# macOS with a non-C locale (e.g. German) can make the postmaster fail with
+# "postmaster became multithreaded during startup" unless LC_ALL is set.
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -36,6 +40,23 @@ OWNER_PW="ergane"
 
 echo "Using initdb: $(command -v initdb)"
 echo "PGDATA=$PGDATA  PGPORT=$PGPORT"
+
+# 0. Make sure the pgvector extension is installed for THIS Postgres install.
+#    (Docker users get it from the pgvector/pgvector:pg16 image; a Homebrew
+#    postgresql@16 keg does not ship it, so we build it from source against the
+#    exact server binaries. Idempotent: skipped when vector.control exists.)
+PGVECTOR_VERSION="v0.8.4"
+SHAREDIR="$(pg_config --sharedir)"
+if [ ! -f "$SHAREDIR/extension/vector.control" ]; then
+  echo "pgvector not found in $SHAREDIR/extension — building ${PGVECTOR_VERSION} from source…"
+  BUILD_DIR="$(mktemp -d)"
+  trap 'rm -rf "$BUILD_DIR"' EXIT
+  git clone --quiet --depth 1 --branch "$PGVECTOR_VERSION" \
+    https://github.com/pgvector/pgvector.git "$BUILD_DIR/pgvector"
+  make -C "$BUILD_DIR/pgvector" PG_CONFIG="$PGBIN/pg_config" >/dev/null
+  make -C "$BUILD_DIR/pgvector" install PG_CONFIG="$PGBIN/pg_config" >/dev/null
+  echo "pgvector installed into $SHAREDIR/extension."
+fi
 
 # 1. Initialize the cluster (trust auth — local dev only).
 if [ ! -f "$PGDATA/PG_VERSION" ]; then
