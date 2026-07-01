@@ -21,6 +21,13 @@ import { retrieve, type RetrievedChunk } from './retrieve';
 export const NO_KNOWLEDGE_ANSWER =
   'Dazu habe ich kein geprüftes Wissen in der Wissensbasis.';
 
+/**
+ * chat_messages deliberately has no sources column (spec-fixed shape), so the
+ * sources survive in the persisted history as a marked trailing line on the
+ * assistant message. The UI splits on this marker to render them as a list.
+ */
+export const SOURCES_MARKER = 'Quellen:';
+
 const SYSTEM_PROMPT = `You are the knowledge assistant of this organization's internal knowledge base.
 
 Rules:
@@ -81,12 +88,15 @@ export async function answerQuestion(input: AnswerQuestionInput): Promise<Answer
       : [...new Set(relevant.map((c) => c.documentTitle))];
   }
 
+  const persistedAnswer =
+    sources.length > 0 ? `${answer}\n\n${SOURCES_MARKER} ${sources.join('; ')}` : answer;
+
   await withTenant(input.orgId, async (tx) => {
     await tx.chatMessage.create({
       data: { orgId: input.orgId, role: 'user', content: question },
     });
     await tx.chatMessage.create({
-      data: { orgId: input.orgId, role: 'assistant', content: answer },
+      data: { orgId: input.orgId, role: 'assistant', content: persistedAnswer },
     });
     await logAudit(tx, {
       orgId: input.orgId,
