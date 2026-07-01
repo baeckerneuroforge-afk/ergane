@@ -28,6 +28,7 @@ chat that answers with sources** — see
 - [The isolation test gate](#the-isolation-test-gate-pnpm-test)
 - [Knowledge base + RAG chat (Phase 2)](#knowledge-base--rag-chat-phase-2)
 - [Skill engine: Guardrail → Freigabe → Audit (Phase 3)](#skill-engine-guardrail--freigabe--audit-phase-3)
+- [Governance-Policies (Phase 4)](#governance-policies-phase-4)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -166,7 +167,9 @@ const items = await withTenant(orgId, (tx) =>
 | `chat_messages`   | **yes**          | ENABLE+FORCE| RAG chat history (`role` ∈ user/assistant)          |
 | `skill_runs`      | **yes**          | ENABLE+FORCE| one skill execution: `status` ∈ running/awaiting_approval/approved/rejected/completed/failed, `input`/`result` jsonb |
 | `skill_steps`     | **yes**          | ENABLE+FORCE| executed steps of a run; composite FK `(run_id, org_id)` → same-tenant run only |
-| `approvals`       | **yes**          | ENABLE+FORCE| human approval gate (`reason`, `decided_by`, `decided_at`); composite FK `(run_id, org_id)` |
+| `approvals`       | **yes**          | ENABLE+FORCE| human approval gate (`reason`, `required_role`, `decided_by`, `decided_at`); composite FK `(run_id, org_id)` |
+| `approval_policies` | **yes**        | ENABLE+FORCE| per-skill approval config (`mode` ∈ always/threshold/never, `threshold_amount`, `approver_role`); unique `(org_id, skill_key)` |
+| `visibility_grants` | **yes**        | ENABLE+FORCE| which role sees which visibility level; unique `(org_id, level, role)`, level ≠ open |
 
 Every table except `organizations` has `org_id UUID NOT NULL` with a foreign key
 to `organizations(id)`. `organizations` is the tenant root, so its own RLS policy
@@ -456,6 +459,90 @@ approve/reject, Vier-Augen-Sanity).
 
 ---
 
+## Governance-Policies (Phase 4)
+
+Firmen konfigurieren selbst, **(A)** wann Skills menschliche Freigabe brauchen
+(`approval_policies`) und **(B)** welches Wissen für welche Rolle sichtbar ist
+(`documents.visibility` + `visibility_grants`).
+
+**Zwei Ebenen, nie vermischt:**
+
+| Ebene | Was | Durchgesetzt von |
+| ----- | --- | ---------------- |
+| 1 — Boden | Mandantentrennung (RLS + FORCE, withTenant) | **Postgres**, nicht konfigurierbar |
+| 2 — Policies | Freigabe-Regeln + Wissens-Sichtbarkeit **innerhalb** eines Tenants | Engine/Retrieval, pro Tenant konfigurierbar |
+
+Kein Policy-Wert kann cross-tenant etwas öffnen: Policies werden selbst nur
+durch `withTenant()` gelesen — Tenant B's Policies existieren für Tenant A
+schlicht nicht (getestet).
+
+### Rollen (Minimal-RBAC)
+
+`memberships.role` ∈ `owner | admin | lead | member` (Default `member`).
+Rollen kommen derzeit aus Seed/Demo. **Clerk-Mapping-Pfad (später):** Clerk
+Custom Roles `org:admin` / `org:lead` / `org:member` anlegen und
+`mapClerkRole()` in `src/lib/auth-context.ts` um `'org:lead' → 'lead'`
+erweitern — die Rolle fließt dann pro Request aus der verifizierten Session in
+`requireTenant()` und von dort in Retrieval/Approvals. `owner` bleibt manuelle
+Elevation und zählt in allen Policy-Prüfungen wie `admin`.
+
+### Approval-Policies (konfigurierbares Human-in-the-Loop)
+
+`setApprovalPolicy()` (nur admin) legt pro Skill fest: `mode` ∈
+`always | threshold | never`, `threshold_amount`, `approver_role` (Default
+`lead`). Auflösung im Engine-Gate, in dieser Reihenfolge:
+
+1. Freigabe (approved) für den Run vorhanden → Schritt läuft.
+2. `always` → Freigabe immer.
+3. `threshold` → Freigabe ab `Betrag ≥ threshold_amount` (`SkillDef.amountOf`
+   liefert den Betrag; unbestimmbar ⇒ Freigabe — fail-closed).
+4. `never` → nur für Skills **ohne** Geld-Wirkung wirksam. Für
+   `handlesMoney`-Skills wird `never` zur Laufzeit **überschrieben** (Audit
+   `policy.overridden_failsafe`), es gilt die Skill-Guardrail. Diese
+   Unabschaltbarkeit ist gewollt und getestet.
+5. Keine Policy → Verhalten wie Phase 3 (Skill-Guardrail; `handlesMoney` ohne
+   Guardrail ⇒ immer Freigabe).
+
+Policy-erzeugte Approvals tragen `required_role`; `approve()`/`reject()` prüft
+die Membership-Rolle des Entscheiders (admin/owner erfüllen jede Anforderung).
+Approvals **ohne** `required_role` (Kein-Policy-Fall) behalten das
+Phase-3-Verhalten.
+
+### Disclosure-Policies (Wissens-Sichtbarkeit)
+
+`documents.visibility` ∈ `open | restricted | confidential` (Default `open`,
+Bestandsdaten → `open`). `visibility_grants` sagt, welche Rolle welche Stufe
+sehen darf (Seed-Defaults: restricted → lead+admin, confidential → admin).
+`retrieve()` filtert **in SQL, vor jedem LLM-Kontakt**; `answerQuestion()`
+reicht die Rolle durch. Für die Rolle unsichtbares Wissen wird nie abgerufen —
+die ehrliche Kein-Wissen-Antwort ist deshalb strukturell leak-frei (kein „dazu
+darfst du nichts sehen").
+
+### Fail-closed-Matrix
+
+| Situation | Verhalten |
+| --------- | --------- |
+| Keine approval_policy für den Skill | Skill-Guardrail; `handlesMoney` ohne Guardrail ⇒ immer Freigabe |
+| `threshold` ohne bestimmbaren Betrag/Schwelle | Freigabe erforderlich |
+| `never` auf `handlesMoney`-Skill | überschrieben (Audit), Skill-Guardrail gilt |
+| Entscheider ohne Membership / falsche Rolle (bei `required_role`) | Entscheidung verweigert |
+| Approval ohne `required_role` (Kein-Policy-Fall) | Phase-3-Verhalten: jede `decided_by`-Identität |
+| Keine/unbekannte Rolle beim Retrieval | nur `open`-Wissen |
+| Kein Grant für Stufe+Rolle | Stufe unsichtbar |
+| Policy-Änderung durch non-admin | verweigert |
+| Für Rolle verstecktes, aber relevantes Wissen | ehrliche Kein-Wissen-Antwort, kein Leak |
+
+Verwaltung: `src/lib/policies/` (`getApprovalPolicy`, `setApprovalPolicy`,
+`setDocumentVisibility`, `setVisibilityGrant`) — alle in `withTenant`, alle
+admin-only, jede Änderung als `policy.changed` im Audit mit `{old, new}` im
+`detail`-jsonb. UI in diesem Branch bewusst minimal: visibility-Auswahl beim
+Anlegen + Badge pro Dokument auf `/dashboard/knowledge`.
+
+Demo: **`pnpm demo:policies`** (Threshold-Policy, Never-Failsafe, Disclosure
+ohne Leak, Rollen-Gate). Tests: `tests/policy.test.ts` ist Teil des CI-Gates.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -538,7 +625,8 @@ cross-tenant checks are designed to catch it.
 ├─ scripts/
 │  ├─ setup-local-db.sh                # no-Docker local DB helper (builds pgvector if missing)
 │  ├─ demo-rag.ts                      # pnpm demo:rag — full RAG pipeline without HTTP/login
-│  └─ demo-skill.ts                    # pnpm demo:skill — guardrail → approval → audit end-to-end
+│  ├─ demo-skill.ts                    # pnpm demo:skill — guardrail → approval → audit end-to-end
+│  └─ demo-policies.ts                 # pnpm demo:policies — threshold, never-failsafe, disclosure, role gate
 ├─ src/
 │  ├─ middleware.ts                    # Clerk: require user + active org
 │  ├─ lib/
@@ -549,12 +637,14 @@ cross-tenant checks are designed to catch it.
 │  │  ├─ org.ts                        # mirror Clerk org + membership
 │  │  ├─ auth-context.ts               # requireTenant() — session → tenant context
 │  │  ├─ ai/                           # provider abstraction: types + anthropic/voyage/fake adapters + factory
-│  │  ├─ rag/                          # chunking, ingestDocument, retrieve, answerQuestion
-│  │  └─ skills/                       # skill engine: types, engine (guardrail→approval→audit), catalog/
+│  │  ├─ rag/                          # chunking, ingestDocument, retrieve (disclosure filter), answerQuestion
+│  │  ├─ skills/                       # skill engine: types, engine (policy→guardrail→approval→audit), catalog/
+│  │  └─ policies/                     # governance: approval policies, visibility grants (admin-only, audited)
 │  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat
 ├─ tests/
 │  ├─ isolation.test.ts                # THE canonical isolation gate
 │  ├─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
-│  └─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
+│  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
+│  └─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR
 ```
