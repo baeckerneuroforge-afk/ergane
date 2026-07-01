@@ -22,7 +22,13 @@ import { PrismaClient } from '@prisma/client';
 import { prisma } from '../src/lib/prisma'; // app_user — the system under test
 import { withTenant } from '../src/lib/tenant';
 import { FakeChatProvider, FakeEmbeddingProvider } from '../src/lib/ai/fake';
-import { ingestDocument, retrieve, answerQuestion, NO_KNOWLEDGE_ANSWER } from '../src/lib/rag';
+import {
+  ingestDocument,
+  retrieve,
+  answerQuestion,
+  NO_KNOWLEDGE_ANSWER,
+  SOURCES_MARKER,
+} from '../src/lib/rag';
 import { toVectorLiteral } from '../src/lib/rag/ingest';
 
 const ORG_A = '33333333-3333-4333-8333-333333333333';
@@ -177,7 +183,8 @@ describe('RAG flow (fake providers — no network)', () => {
     });
 
     expect(result.answer).not.toBe(NO_KNOWLEDGE_ANSWER);
-    expect(result.answer).toContain(DOC_A.title); // fake chat echoes the [source] line
+    // Canonical sources format: the grounded answer ENDS with the marked line.
+    expect(result.answer.endsWith(`${SOURCES_MARKER} ${DOC_A.title}`)).toBe(true);
     expect(result.sources).toEqual([DOC_A.title]);
 
     // Both messages persisted in A's history; the stored answer carries the sources line.

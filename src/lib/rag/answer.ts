@@ -21,11 +21,26 @@ import { retrieve, type RetrievedChunk } from './retrieve';
 export const NO_KNOWLEDGE_ANSWER =
   'Dazu habe ich kein geprüftes Wissen in der Wissensbasis.';
 
+/**
+ * CANONICAL sources format. Every grounded answer ends with exactly one line
+ *
+ *     Quellen: <Titel1>, <Titel2>, …
+ *
+ * appended deterministically by THIS layer (never left to the LLM — the system
+ * prompt forbids the model to emit its own source list, and any line it emits
+ * anyway is stripped). The honest no-knowledge answer carries NO sources line.
+ * chat_messages deliberately has no sources column (spec-fixed shape), so this
+ * marked line is what persists the sources in the history; the chat UI — and
+ * later the skill engine — parse it back via this marker.
+ */
+export const SOURCES_MARKER = 'Quellen:';
+
 const SYSTEM_PROMPT = `You are the knowledge assistant of this organization's internal knowledge base.
 
 Rules:
 - Answer ONLY from the context passages provided in the user message. Each passage is prefixed with its source document title in [brackets].
 - If the context does not contain the answer, reply exactly: "${NO_KNOWLEDGE_ANSWER}" — do not guess, do not use outside knowledge.
+- Do NOT list or repeat your sources and do not add a "${SOURCES_MARKER}" line — the system appends the canonical sources line itself.
 - Answer in the language of the question, concisely.`;
 
 export interface AnswerQuestionInput {
@@ -38,6 +53,7 @@ export interface AnswerQuestionInput {
 }
 
 export interface AnswerQuestionResult {
+  /** Canonical answer text; grounded answers end with the `Quellen: …` line. */
   answer: string;
   /** Unique document titles the answer is based on; empty for the honest "no knowledge" case. */
   sources: string[];
@@ -50,6 +66,16 @@ function buildUserMessage(question: string, chunks: RetrievedChunk[]): string {
     .map((c) => `[${c.documentTitle}] ${c.content}`)
     .join('\n\n');
   return `Context passages:\n\n${context}\n\nQuestion: ${question}`;
+}
+
+/** Drop any sources line the model emitted despite the prompt — the canonical
+ * line is appended below, exactly once. */
+function stripModelSourceLines(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !line.trim().startsWith(SOURCES_MARKER))
+    .join('\n')
+    .trim();
 }
 
 export async function answerQuestion(input: AnswerQuestionInput): Promise<AnswerQuestionResult> {
@@ -71,14 +97,18 @@ export async function answerQuestion(input: AnswerQuestionInput): Promise<Answer
     answer = NO_KNOWLEDGE_ANSWER;
   } else {
     const chat = input.chat ?? getChatProvider();
-    answer = await chat.complete({
+    const raw = await chat.complete({
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: buildUserMessage(question, relevant) }],
     });
-    // If the model itself concluded the context is insufficient, report no sources.
-    sources = answer.includes(NO_KNOWLEDGE_ANSWER)
-      ? []
-      : [...new Set(relevant.map((c) => c.documentTitle))];
+    const cleaned = stripModelSourceLines(raw);
+    if (cleaned.includes(NO_KNOWLEDGE_ANSWER)) {
+      // The model itself concluded the context is insufficient: no sources line.
+      answer = NO_KNOWLEDGE_ANSWER;
+    } else {
+      sources = [...new Set(relevant.map((c) => c.documentTitle))];
+      answer = `${cleaned}\n\n${SOURCES_MARKER} ${sources.join(', ')}`;
+    }
   }
 
   await withTenant(input.orgId, async (tx) => {

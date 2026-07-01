@@ -38,11 +38,11 @@ async function ask(question: string) {
     actorId: ACTOR,
     question,
   });
-  console.log(`💬  ${answer}`);
-  if (sources.length > 0) {
-    console.log(`📚  Quellen: ${sources.join('; ')}`);
-  } else {
-    console.log('📚  Quellen: (keine — kein geprüftes Wissen)');
+  // Grounded answers already END with the canonical "Quellen: …" line
+  // (appended by answerQuestion) — print as-is, no separate sources output.
+  console.log(`💬  ${answer.split('\n').join('\n    ')}`);
+  if (sources.length === 0) {
+    console.log('📚  (keine Quellen — kein geprüftes Wissen)');
   }
   return { answer, sources };
 }
