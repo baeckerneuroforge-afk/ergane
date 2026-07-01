@@ -124,3 +124,7 @@ CREATE POLICY "visibility_grants_tenant_isolation" ON "visibility_grants"
 -- -----------------------------------------------------------------------------
 GRANT SELECT, INSERT, UPDATE ON "approval_policies" TO app_user;
 GRANT SELECT, INSERT, DELETE ON "visibility_grants" TO app_user;
+
+-- documents was SELECT/INSERT-only ("grant when a feature appears" — 0002).
+-- The feature is here: setDocumentVisibility() flips the disclosure level.
+GRANT UPDATE ON "documents" TO app_user;
