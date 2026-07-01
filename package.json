@@ -21,6 +21,7 @@
     "prisma:generate": "prisma generate",
     "demo:rag": "tsx scripts/demo-rag.ts",
     "demo:skill": "tsx scripts/demo-skill.ts",
+    "demo:policies": "tsx scripts/demo-policies.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
