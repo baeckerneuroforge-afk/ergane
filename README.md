@@ -29,6 +29,7 @@ chat that answers with sources** — see
 - [Knowledge base + RAG chat (Phase 2)](#knowledge-base--rag-chat-phase-2)
 - [Skill engine: Guardrail → Freigabe → Audit (Phase 3)](#skill-engine-guardrail--freigabe--audit-phase-3)
 - [Governance-Policies (Phase 4)](#governance-policies-phase-4)
+- [Settings-Oberfläche (Admin-Governance-UI)](#settings-oberfläche-admin-governance-ui)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -573,6 +574,43 @@ ohne Leak, Rollen-Gate). Tests: `tests/policy.test.ts` ist Teil des CI-Gates.
 
 ---
 
+## Settings-Oberfläche (Admin-Governance-UI)
+
+`/dashboard/settings` macht die Phase-4-Governance für Admins bedienbar —
+**ohne neue Governance-Logik**: die Seite ist UI + dünne Server-Actions, jede
+Mutation delegiert an die bestehenden Funktionen aus `src/lib/policies/`
+(dort sitzen Admin-Gate, `withTenant` und Audit). Der Sidebar-Eintrag ist nur
+für `admin`/`owner` sichtbar; die Seite selbst leitet Nicht-Admins um — die
+serverseitigen Checks in den Policy-Funktionen bleiben die Wahrheit.
+
+Drei Tabs:
+
+1. **Freigabe-Regeln** — pro Katalog-Skill Modus (`immer | ab Schwelle X € |
+   nie`) und Freigeber-Rolle (`lead | admin`), gespeichert über
+   `setApprovalPolicy()`. Geld-Skills tragen den Hinweis, dass Freigabe dort
+   nicht abschaltbar ist (der Never-Failsafe aus Phase 4, sichtbar gemacht).
+2. **Wissens-Sichtbarkeit** — Erklärung der drei Stufen, editierbare
+   Grant-Matrix (Rolle × Stufe, `setVisibilityGrant()`), darunter eine
+   read-only Dokumentliste mit Verweis auf `/dashboard/knowledge` zum Ändern
+   der Stufe.
+3. **Mitglieder & Rollen** — Rollen ändern (`member | lead | admin`) über
+   `setMembershipRole()`.
+
+**`setMembershipRole()`** (`src/lib/policies/index.ts`) ist die einzige neue
+Backend-Funktion dieses Branches: admin-only, in `withTenant` (fremde userIds
+sind unter RLS schlicht „not found"), mit **Letzter-Admin-Guard** (der letzte
+admin/owner kann nicht degradiert werden) und Audit
+`membership.role_changed` mit `{old, new}`. `owner` ist über die Funktion
+nicht vergebbar (bleibt manuelle Elevation). Hinweis: `memberships.role` wird
+beim Dashboard-Laden des jeweiligen Users mit seiner Clerk-Org-Rolle
+gespiegelt (`ensureOrgAndMembership`) — für dauerhafte Änderungen die Rolle
+auch in Clerk pflegen.
+
+Tests: `tests/settings.test.ts` (admin-only, Tenant-Scope, Letzter-Admin-Guard,
+Audit, No-op ohne Audit) ist Teil des CI-Gates.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -672,13 +710,14 @@ cross-tenant checks are designed to catch it.
 │  │  ├─ ingest/                       # extraction layer: PDF/DOCX/MD/TXT → text + meta (fail-closed)
 │  │  ├─ rag/                          # chunking, ingestDocument, retrieve (disclosure filter), answerQuestion
 │  │  ├─ skills/                       # skill engine: types, engine (policy→guardrail→approval→audit), catalog/
-│  │  └─ policies/                     # governance: approval policies, visibility grants (admin-only, audited)
-│  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat
+│  │  └─ policies/                     # governance: approval policies, visibility grants, membership roles (admin-only, audited)
+│  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat, settings (admin)
 ├─ tests/
 │  ├─ isolation.test.ts                # THE canonical isolation gate
 │  ├─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
-│  └─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
+│  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
+│  └─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR
 ```

@@ -321,6 +321,34 @@ a.quick-card .quick-hint {
   background: color-mix(in srgb, var(--text-3) 10%, white);
 }
 
+/* --- Tabs (Settings) -------------------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+}
+
+.tab {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  margin-bottom: -1px;
+}
+
+.tab:hover { color: var(--text-2); }
+
+.tab.active {
+  color: var(--text);
+  background: var(--card);
+  border-color: var(--border);
+}
+
 /* --- Tabellen -------------------------------------------------------------- */
 .table {
   width: 100%;
