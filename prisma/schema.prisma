@@ -254,6 +254,12 @@ model Document {
   title      String
   source     DocumentSource
   visibility DocumentVisibility @default(open)
+  /// Ingestion metadata (0005, all nullable — NULL = pre-0005 / unknown):
+  /// original file format ('pdf' | 'docx' | 'md' | 'txt'), PDF page count,
+  /// extracted word count.
+  sourceFormat String?          @map("source_format")
+  pageCount    Int?             @map("page_count")
+  wordCount    Int?             @map("word_count")
   createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

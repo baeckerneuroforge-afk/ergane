@@ -2,7 +2,7 @@
   "name": "ergane",
   "version": "0.1.0",
   "private": true,
-  "description": "ergane — GDPR-native, multi-tenant B2B foundation. Tenant isolation is enforced by the database (Postgres RLS + FORCE), not by application-code discipline.",
+  "description": "ergane \u2014 GDPR-native, multi-tenant B2B foundation. Tenant isolation is enforced by the database (Postgres RLS + FORCE), not by application-code discipline.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -20,6 +20,7 @@
     "db:studio": "prisma studio",
     "prisma:generate": "prisma generate",
     "demo:rag": "tsx scripts/demo-rag.ts",
+    "demo:ingest": "tsx scripts/demo-ingest.ts",
     "demo:skill": "tsx scripts/demo-skill.ts",
     "demo:policies": "tsx scripts/demo-policies.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
@@ -35,10 +36,12 @@
     "@anthropic-ai/sdk": "^0.109.0",
     "@clerk/nextjs": "^6.12.0",
     "@prisma/client": "^6.3.0",
+    "mammoth": "^1.12.0",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "unpdf": "^1.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

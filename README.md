@@ -292,6 +292,36 @@ tenant guarantees, RLS applies identically. `org_id` is always set explicitly
 on top (defense-in-depth), and a **composite FK `(document_id, org_id)`** makes
 a chunk structurally incapable of pointing at another tenant's document.
 
+### Datei-Ingestion: PDF, DOCX, MD, TXT (Phase 5)
+
+Uploads laufen durch **einen** Extraktions-Layer (`src/lib/ingest/extract.ts`):
+`extractText(file) → { text, meta }`. Der extrahierte Text geht danach
+unverändert durch die **bestehende** `ingestDocument()`-Pipeline — keine
+Parallel-Pipeline. Die Meta-Daten (`source_format`, `page_count`, `word_count`,
+Migration 0005, rein additiv) landen auf der `documents`-Zeile und werden in
+der UI als Format-Badge angezeigt.
+
+| Format | Parser  | Anmerkungen |
+| ------ | ------- | ----------- |
+| `.pdf` | unpdf   | Nur Text-PDFs; liefert Seitenzahl |
+| `.docx`| mammoth | Überschriften bleiben als eigene Absätze erhalten |
+| `.md`  | direkt  | Markdown-Dekoration leicht bereinigt; Code-Fences bleiben wörtlich erhalten |
+| `.txt` | direkt  | — |
+
+**Defensiv & fail-closed:**
+
+- **20 MB Limit** pro Datei; MIME-Typ **und** Datei-Endung müssen zusammenpassen.
+- **Gescannte PDFs ohne Textebene werden abgelehnt** („OCR kommt später") —
+  es gibt keinen stillen Leer-Import; ohne extrahierbaren Text wird **kein**
+  Dokument angelegt (Extraktion läuft vor jedem Write).
+- Beim Multi-Upload (Drag & Drop in `/dashboard/knowledge`) wird **jede Datei
+  einzeln** ingestiert und gemeldet (Chunks erzeugt / Fehler mit Grund) — eine
+  kaputte Datei bricht nie den ganzen Batch ab.
+
+**Bekannte Grenzen:** kein OCR (Scan-PDFs), keine Bilder/Tabellen-Extraktion,
+20 MB pro Datei. Demo: `pnpm demo:ingest` ingestiert je eine Beispieldatei pro
+Format aus `fixtures/` und beantwortet eine Frage mit Quelle aus dem PDF.
+
 ### Retrieval (`src/lib/rag/retrieve.ts`)
 
 `retrieve({orgId, query, k})` embeds the query (`input_type: 'query'`), then
@@ -622,9 +652,11 @@ cross-tenant checks are designed to catch it.
 │  ├─ migrations/0001_init/migration.sql # tables + RLS + FORCE + policies + trigger + grants
 │  ├─ migrations/0002_knowledge_base/migration.sql # pgvector + documents/chunks/chat_messages (+RLS, HNSW, grants)
 │  └─ seed.ts                          # two demo tenants (writes via withTenant)
+├─ fixtures/                           # tiny sample files per format (pdf/docx/md/txt + scan.pdf) for tests & demo
 ├─ scripts/
 │  ├─ setup-local-db.sh                # no-Docker local DB helper (builds pgvector if missing)
 │  ├─ demo-rag.ts                      # pnpm demo:rag — full RAG pipeline without HTTP/login
+│  ├─ demo-ingest.ts                   # pnpm demo:ingest — PDF/DOCX/MD/TXT extraction → RAG answer from the PDF
 │  ├─ demo-skill.ts                    # pnpm demo:skill — guardrail → approval → audit end-to-end
 │  └─ demo-policies.ts                 # pnpm demo:policies — threshold, never-failsafe, disclosure, role gate
 ├─ src/
@@ -637,6 +669,7 @@ cross-tenant checks are designed to catch it.
 │  │  ├─ org.ts                        # mirror Clerk org + membership
 │  │  ├─ auth-context.ts               # requireTenant() — session → tenant context
 │  │  ├─ ai/                           # provider abstraction: types + anthropic/voyage/fake adapters + factory
+│  │  ├─ ingest/                       # extraction layer: PDF/DOCX/MD/TXT → text + meta (fail-closed)
 │  │  ├─ rag/                          # chunking, ingestDocument, retrieve (disclosure filter), answerQuestion
 │  │  ├─ skills/                       # skill engine: types, engine (policy→guardrail→approval→audit), catalog/
 │  │  └─ policies/                     # governance: approval policies, visibility grants (admin-only, audited)
@@ -645,6 +678,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ isolation.test.ts                # THE canonical isolation gate
 │  ├─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
-│  └─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
+│  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
+│  └─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR
 ```
