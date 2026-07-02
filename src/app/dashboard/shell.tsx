@@ -130,11 +130,13 @@ export function DashboardShell({
 
       <div className="dash-main">
         <header className="topbar">
-          <h1 className="topbar-title">{pageTitle(pathname)}</h1>
-          <div className="topbar-meta">
-            <span className="chip chip--gray">{tenantName}</span>
-            <span className="chip chip--indigo">{role}</span>
-            <UserButton />
+          <div className="topbar-inner">
+            <h1 className="topbar-title">{pageTitle(pathname)}</h1>
+            <div className="topbar-meta">
+              <span className="chip chip--gray">{tenantName}</span>
+              <span className="chip chip--indigo">{role}</span>
+              <UserButton />
+            </div>
           </div>
         </header>
         <main className="content">{children}</main>

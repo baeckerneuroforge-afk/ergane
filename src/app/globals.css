@@ -1,5 +1,6 @@
 /* ============================================================================
-   ergane Design-System
+   ergane Design-System — „ruhige Souveränität"
+   Warmes Papier, zentrierte Spalte, editoriale Typografie.
    Semantik (Gesetz):
      Stahl-Indigo  = Wissen / liest nur
      Glut-Orange   = Handlung / führt aus
@@ -7,23 +8,27 @@
      Grün          = completed, Rot (gedeckt) = rejected/failed
    ========================================================================== */
 :root {
-  --bg: #f5f6f4;
+  --bg: #faf8f4;
   --card: #ffffff;
-  --border: #e3e6e1;
-  --text: #15161b;
-  --text-2: #434753;
-  --text-3: #7b8190;
-  --graphite: #141519;
+  --border: #eae5db;
+  --border-strong: #ddd6c8;
+  --text: #1e1c18;
+  --text-2: #4f4b43;
+  --text-3: #8b8578;
+  --graphite: #22201c;
   --indigo: #39426b;
   --indigo-dark: #262c49;
-  --orange: #d6531a;
+  --orange: #cf5217;
   --amber: #b45309;
-  --amber-bg: #fef3c7;
+  --amber-bg: #fdf3dc;
   --green: #2e7d55;
   --red: #b91c1c;
-  --radius: 12px;
-  --sidebar-w: 232px;
-  --shadow: 0 1px 2px rgba(21, 22, 27, 0.05);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --sidebar-w: 224px;
+  --content-w: 880px;
+  --shadow: 0 1px 2px rgba(30, 28, 24, 0.04), 0 4px 16px rgba(30, 28, 24, 0.04);
+  --shadow-lift: 0 2px 4px rgba(30, 28, 24, 0.05), 0 10px 28px rgba(30, 28, 24, 0.07);
 }
 
 * {
@@ -37,25 +42,49 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
-  line-height: 1.55;
-  font-size: 15px;
+  line-height: 1.6;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3 {
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 560;
+  letter-spacing: -0.005em;
   color: var(--text);
 }
 
-h1 { font-size: 1.35rem; margin: 0 0 0.25rem; }
-h2 { font-size: 1.05rem; margin: 0 0 0.75rem; }
+h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+h2 { font-size: 1.15rem; margin: 0 0 0.85rem; }
 
 a { color: var(--indigo); }
 
 .muted { color: var(--text-3); }
-.mono { font-family: var(--font-mono, ui-monospace, monospace); }
+.mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.92em; }
+
+/* Sanfter, gestaffelter Einzug der Inhalte. */
+@media (prefers-reduced-motion: no-preference) {
+  .content > * {
+    animation: rise 0.45s cubic-bezier(0.22, 0.8, 0.3, 1) backwards;
+  }
+  .content > *:nth-child(2) { animation-delay: 0.05s; }
+  .content > *:nth-child(3) { animation-delay: 0.1s; }
+  .content > *:nth-child(4) { animation-delay: 0.15s; }
+  .content > *:nth-child(n + 5) { animation-delay: 0.2s; }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 /* --- Auth-/Standalone-Seiten ------------------------------------------- */
 .auth-page {
@@ -80,20 +109,22 @@ a { color: var(--indigo); }
   bottom: 0;
   left: 0;
   width: var(--sidebar-w);
-  background: var(--graphite);
-  color: #b9bdc7;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  color: var(--text-2);
   display: flex;
   flex-direction: column;
-  padding: 1.1rem 0.75rem;
+  padding: 1.5rem 0.9rem;
   z-index: 30;
 }
 
 .wordmark {
-  color: #fff;
-  font-weight: 700;
-  font-size: 1.1rem;
+  font-family: var(--font-display, Georgia, serif);
+  color: var(--text);
+  font-weight: 620;
+  font-size: 1.45rem;
   letter-spacing: -0.01em;
-  padding: 0.25rem 0.75rem 1.1rem;
+  padding: 0 0.75rem 1.6rem;
   text-decoration: none;
 }
 
@@ -101,54 +132,50 @@ a { color: var(--indigo); }
 
 .nav {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .nav-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 8px;
-  color: #b9bdc7;
+  gap: 0.7rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.nav-item svg { flex: 0 0 auto; }
+.nav-item svg { flex: 0 0 auto; color: var(--text-3); transition: color 0.15s ease; }
 
 .nav-item:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  background: rgba(30, 28, 24, 0.045);
 }
+
+.nav-item:hover svg { color: var(--text-2); }
 
 .nav-item.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font-weight: 600;
+  background: var(--card);
+  box-shadow: var(--shadow);
 }
 
-.nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: -0.75rem;
-  top: 20%;
-  bottom: 20%;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--orange);
-}
+.nav-item.active svg { color: var(--orange); }
 
 .nav-badge {
   margin-left: auto;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.7rem;
-  line-height: 1.5;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.6;
   background: var(--orange);
   color: #fff;
   border-radius: 999px;
-  padding: 0 0.4rem;
-  min-width: 1.25rem;
+  padding: 0 0.45rem;
+  min-width: 1.3rem;
   text-align: center;
 }
 
@@ -164,19 +191,23 @@ a { color: var(--indigo); }
   position: sticky;
   top: 0;
   z-index: 20;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.85rem 2rem;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--border);
+  max-width: var(--content-w);
+  margin-inline: auto;
+  padding: 0.9rem 2rem;
 }
 
 .topbar-title {
-  font-size: 1.05rem;
-  font-weight: 650;
+  font-size: 1.15rem;
   margin: 0;
 }
 
@@ -187,11 +218,12 @@ a { color: var(--indigo); }
 }
 
 .content {
-  padding: 1.5rem 2rem 3rem;
   width: 100%;
-  max-width: 1080px;
+  max-width: var(--content-w);
+  margin-inline: auto;
+  padding: 2.25rem 2rem 4.5rem;
   display: grid;
-  gap: 1.25rem;
+  gap: 1.4rem;
   align-content: start;
 }
 
@@ -207,9 +239,8 @@ a { color: var(--indigo); }
     right: 4px;
     margin: 0;
   }
-  .nav-item.active::before { left: -0.5rem; }
   .dash-main { margin-left: 64px; }
-  .topbar, .content { padding-inline: 1.25rem; }
+  .topbar-inner, .content { padding-inline: 1.25rem; }
 }
 
 /* --- Karten & Kennzahlen -------------------------------------------------- */
@@ -218,7 +249,7 @@ a { color: var(--indigo); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 1.15rem 1.25rem;
+  padding: 1.35rem 1.5rem;
 }
 
 .kpi-grid {
@@ -229,16 +260,19 @@ a { color: var(--indigo); }
 
 .kpi-label {
   font-size: 0.78rem;
+  font-weight: 600;
   color: var(--text-3);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
 }
 
 .kpi-value {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 1.7rem;
-  font-weight: 600;
-  margin-top: 0.35rem;
+  font-family: var(--font-display, Georgia, serif);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.1rem;
+  font-weight: 560;
+  line-height: 1.2;
+  margin-top: 0.3rem;
 }
 
 .kpi-value.attention { color: var(--orange); }
@@ -253,15 +287,26 @@ a.quick-card {
   text-decoration: none;
   color: var(--text);
   display: grid;
-  gap: 0.25rem;
+  gap: 0.3rem;
   align-content: start;
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 
-a.quick-card:hover { border-color: var(--text-3); }
+a.quick-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
+}
+
+a.quick-card strong {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
 
 a.quick-card .quick-hint {
   color: var(--text-3);
-  font-size: 0.85rem;
+  font-size: 0.88rem;
 }
 
 /* --- Chips & Badges -------------------------------------------------------- */
@@ -269,11 +314,11 @@ a.quick-card .quick-hint {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.72rem;
-  line-height: 1.5;
+  font-size: 0.76rem;
+  font-weight: 550;
+  line-height: 1.6;
   border-radius: 999px;
-  padding: 0.1rem 0.55rem;
+  padding: 0.1rem 0.6rem;
   border: 1px solid var(--border);
   color: var(--text-2);
   background: var(--card);
@@ -282,8 +327,8 @@ a.quick-card .quick-hint {
 
 .chip--indigo {
   color: var(--indigo);
-  border-color: color-mix(in srgb, var(--indigo) 35%, white);
-  background: color-mix(in srgb, var(--indigo) 8%, white);
+  border-color: color-mix(in srgb, var(--indigo) 28%, white);
+  background: color-mix(in srgb, var(--indigo) 7%, white);
 }
 
 .chip--indigo-dark {
@@ -294,26 +339,26 @@ a.quick-card .quick-hint {
 
 .chip--orange {
   color: var(--orange);
-  border-color: color-mix(in srgb, var(--orange) 40%, white);
-  background: color-mix(in srgb, var(--orange) 9%, white);
+  border-color: color-mix(in srgb, var(--orange) 32%, white);
+  background: color-mix(in srgb, var(--orange) 8%, white);
 }
 
 .chip--amber {
   color: var(--amber);
-  border-color: color-mix(in srgb, var(--amber) 30%, white);
+  border-color: color-mix(in srgb, var(--amber) 26%, white);
   background: var(--amber-bg);
 }
 
 .chip--green {
   color: var(--green);
-  border-color: color-mix(in srgb, var(--green) 35%, white);
-  background: color-mix(in srgb, var(--green) 9%, white);
+  border-color: color-mix(in srgb, var(--green) 28%, white);
+  background: color-mix(in srgb, var(--green) 8%, white);
 }
 
 .chip--red {
   color: var(--red);
-  border-color: color-mix(in srgb, var(--red) 30%, white);
-  background: color-mix(in srgb, var(--red) 7%, white);
+  border-color: color-mix(in srgb, var(--red) 24%, white);
+  background: color-mix(in srgb, var(--red) 6%, white);
 }
 
 .chip--gray {
@@ -323,22 +368,23 @@ a.quick-card .quick-hint {
 
 /* --- Tabs (Settings) -------------------------------------------------------- */
 .tabs {
-  display: flex;
+  display: inline-flex;
   gap: 0.25rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 1rem;
+  background: color-mix(in srgb, var(--text-3) 9%, transparent);
+  border-radius: 999px;
+  padding: 0.25rem;
+  margin-bottom: 1.1rem;
+  justify-self: start;
 }
 
 .tab {
-  padding: 0.45rem 0.9rem;
-  font-size: 0.9rem;
+  padding: 0.4rem 1rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: var(--text-3);
   text-decoration: none;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: var(--radius) var(--radius) 0 0;
-  margin-bottom: -1px;
+  border-radius: 999px;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
 .tab:hover { color: var(--text-2); }
@@ -346,29 +392,29 @@ a.quick-card .quick-hint {
 .tab.active {
   color: var(--text);
   background: var(--card);
-  border-color: var(--border);
+  box-shadow: var(--shadow);
 }
 
 /* --- Tabellen -------------------------------------------------------------- */
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
 .table th {
   text-align: left;
   font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   color: var(--text-3);
   font-weight: 600;
-  padding: 0.45rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
 .table td {
-  padding: 0.6rem 0.75rem;
+  padding: 0.7rem 0.75rem;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
@@ -378,40 +424,41 @@ a.quick-card .quick-hint {
 .table a { text-decoration: none; }
 .table a:hover { text-decoration: underline; }
 
-.card--table { padding: 0.35rem 0; }
+.card--table { padding: 0.45rem 0; }
 .card--table .table th:first-child,
-.card--table .table td:first-child { padding-left: 1.25rem; }
+.card--table .table td:first-child { padding-left: 1.5rem; }
 .card--table .table th:last-child,
-.card--table .table td:last-child { padding-right: 1.25rem; }
+.card--table .table td:last-child { padding-right: 1.5rem; }
 
 /* --- Formulare -------------------------------------------------------------- */
 label {
   display: block;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-2);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.3rem;
 }
 
 input,
 textarea,
 select {
   width: 100%;
-  padding: 0.55rem 0.7rem;
-  margin: 0 0 0.85rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0 0 0.9rem;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   color: var(--text);
   font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
-  outline: 2px solid color-mix(in srgb, var(--indigo) 35%, white);
-  outline-offset: 0;
+  outline: none;
   border-color: var(--indigo);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--indigo) 14%, transparent);
 }
 
 button { font: inherit; cursor: pointer; }
@@ -420,16 +467,18 @@ button { font: inherit; cursor: pointer; }
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  padding: 0.55rem 1.15rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
   background: var(--card);
   color: var(--text);
   font-weight: 600;
   font-size: 0.9rem;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
 .btn:hover { border-color: var(--text-3); }
+.btn:active { transform: scale(0.98); }
 
 .btn--primary {
   background: var(--orange);
@@ -444,7 +493,10 @@ button { font: inherit; cursor: pointer; }
 
 .btn--ghost {
   background: transparent;
+  border-color: transparent;
 }
+
+.btn--ghost:hover { border-color: var(--border-strong); }
 
 .btn:disabled {
   opacity: 0.45;
@@ -454,8 +506,8 @@ button { font: inherit; cursor: pointer; }
 .select--inline {
   width: auto;
   margin: 0;
-  padding: 0.25rem 0.4rem;
-  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.82rem;
 }
 
 /* --- Chat -------------------------------------------------------------------- */
@@ -463,29 +515,29 @@ button { font: inherit; cursor: pointer; }
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-height: calc(100vh - 9rem);
+  min-height: calc(100vh - 10rem);
 }
 
 .chat-scroll {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
   padding-bottom: 0.5rem;
 }
 
 .bubble {
   max-width: 44rem;
   border-radius: var(--radius);
-  padding: 0.7rem 0.95rem;
+  padding: 0.75rem 1.05rem;
   white-space: pre-wrap;
 }
 
 .bubble--user {
   align-self: flex-end;
   background: var(--graphite);
-  color: #f2f3f5;
-  border-bottom-right-radius: 4px;
+  color: #f5f3ef;
+  border-bottom-right-radius: 5px;
 }
 
 .bubble--assistant {
@@ -493,13 +545,13 @@ button { font: inherit; cursor: pointer; }
   background: var(--card);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 5px;
 }
 
 .bubble--empty {
   align-self: flex-start;
   background: transparent;
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--border-strong);
   box-shadow: none;
   color: var(--text-3);
 }
@@ -508,7 +560,7 @@ button { font: inherit; cursor: pointer; }
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  margin-top: 0.55rem;
+  margin-top: 0.6rem;
 }
 
 .chat-input {
@@ -522,19 +574,24 @@ button { font: inherit; cursor: pointer; }
   display: flex;
   gap: 0.6rem;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lift);
+  padding: 0.5rem 0.5rem 0.5rem 1.1rem;
 }
 
 .chat-input input {
   border: none;
   margin: 0;
+  padding-inline: 0;
   flex: 1;
 }
 
-.chat-input input:focus { outline: none; }
+.chat-input input:focus {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
 
 /* --- Run-Timeline ------------------------------------------------------------ */
 .timeline {
@@ -546,7 +603,7 @@ button { font: inherit; cursor: pointer; }
 
 .timeline li {
   position: relative;
-  padding: 0 0 1.1rem 2rem;
+  padding: 0 0 1.2rem 2.1rem;
 }
 
 .timeline li:last-child { padding-bottom: 0; }
@@ -554,8 +611,8 @@ button { font: inherit; cursor: pointer; }
 .timeline li::before {
   content: '';
   position: absolute;
-  left: 0.55rem;
-  top: 1.35rem;
+  left: 0.58rem;
+  top: 1.45rem;
   bottom: 0;
   width: 2px;
   background: var(--border);
@@ -567,12 +624,12 @@ button { font: inherit; cursor: pointer; }
   position: absolute;
   left: 0;
   top: 0.15rem;
-  width: 1.2rem;
-  height: 1.2rem;
+  width: 1.25rem;
+  height: 1.25rem;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  border: 2px solid var(--border);
+  border: 2px solid var(--border-strong);
   background: var(--card);
   color: var(--text-3);
 }
@@ -585,7 +642,7 @@ button { font: inherit; cursor: pointer; }
 /* Bernstein-Karte: wartet auf einen Menschen. */
 .card--awaiting {
   background: var(--amber-bg);
-  border-color: color-mix(in srgb, var(--amber) 30%, white);
+  border-color: color-mix(in srgb, var(--amber) 26%, white);
   color: var(--amber);
 }
 
@@ -600,14 +657,17 @@ button { font: inherit; cursor: pointer; }
 
 a.filter-chip {
   text-decoration: none;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.78rem;
-  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 550;
+  padding: 0.22rem 0.75rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   color: var(--text-2);
   background: var(--card);
+  transition: border-color 0.15s ease;
 }
+
+a.filter-chip:hover { border-color: var(--border-strong); }
 
 a.filter-chip.active {
   background: var(--graphite);
@@ -616,7 +676,7 @@ a.filter-chip.active {
 }
 
 .audit-note {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: var(--text-3);
 }
 
@@ -630,9 +690,9 @@ details.json-details summary {
 pre.json {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.78rem;
-  background: #fafbf9;
+  background: #fbfaf6;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 0.7rem 0.85rem;
   overflow-x: auto;
   margin: 0.5rem 0 0;
@@ -655,8 +715,9 @@ pre.json {
 }
 
 .approval-amount {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 1.25rem;
+  font-family: var(--font-display, Georgia, serif);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.4rem;
   font-weight: 600;
 }
 
@@ -667,13 +728,13 @@ pre.json {
 }
 
 /* --- Sonstiges ------------------------------------------------------------------ */
-.page-intro { color: var(--text-3); font-size: 0.9rem; margin: 0; }
+.page-intro { color: var(--text-3); font-size: 0.92rem; margin: 0; }
 
 .empty {
   color: var(--text-3);
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
-  padding: 1.25rem;
+  padding: 1.75rem 1.25rem;
   text-align: center;
 }
 

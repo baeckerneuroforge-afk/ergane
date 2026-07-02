@@ -1,9 +1,14 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Fraunces, Instrument_Sans, JetBrains_Mono } from 'next/font/google';
 import { ClerkProvider } from '@clerk/nextjs';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+const instrumentSans = Instrument_Sans({ subsets: ['latin'], variable: '--font-sans' });
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-display',
+  axes: ['opsz'],
+});
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
@@ -15,7 +20,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <ClerkProvider>
       <html lang="de">
-        <body className={`${inter.variable} ${jetbrainsMono.variable}`}>{children}</body>
+        <body
+          className={`${instrumentSans.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}
+        >
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );
