@@ -10,6 +10,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { setApprovalPolicy, setMembershipRole, setVisibilityGrant } from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
+import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
 
 const MODES: ApprovalMode[] = ['always', 'threshold', 'never'];
 const APPROVER_ROLES: Role[] = ['lead', 'admin'];
@@ -91,6 +92,42 @@ export async function saveMembershipRole(formData: FormData) {
 
   const { orgId, userId } = await requireTenantWithMembership();
   await setMembershipRole({ orgId, actorUserId: userId, userId: targetUserId, role });
+
+  revalidatePath('/dashboard/settings');
+}
+
+// -----------------------------------------------------------------------------
+// Slack (admin gate + audit live in src/lib/slack/admin.ts)
+// -----------------------------------------------------------------------------
+
+export async function saveSlackInstallation(formData: FormData) {
+  const slackTeamId = String(formData.get('slackTeamId') ?? '').trim();
+  if (!slackTeamId) throw new Error('Slack-Team-ID ist erforderlich.');
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await createSlackInstallation({ orgId, actorUserId: userId, slackTeamId });
+
+  revalidatePath('/dashboard/settings');
+}
+
+export async function saveSlackUserLink(formData: FormData) {
+  const slackUserId = String(formData.get('slackUserId') ?? '').trim();
+  const targetUserId = String(formData.get('userId') ?? '').trim();
+  if (!slackUserId) throw new Error('Slack-User-ID ist erforderlich.');
+  if (!targetUserId) throw new Error('Mitglied ist erforderlich.');
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await linkSlackUser({ orgId, actorUserId: userId, slackUserId, userId: targetUserId });
+
+  revalidatePath('/dashboard/settings');
+}
+
+export async function removeSlackUserLink(formData: FormData) {
+  const slackUserId = String(formData.get('slackUserId') ?? '').trim();
+  if (!slackUserId) throw new Error('Slack-User-ID ist erforderlich.');
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await unlinkSlackUser({ orgId, actorUserId: userId, slackUserId });
 
   revalidatePath('/dashboard/settings');
 }
