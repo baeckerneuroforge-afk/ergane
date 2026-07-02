@@ -321,7 +321,11 @@ export default async function SettingsPage({
             ) : (
               <form action={saveSlackInstallation}>
                 <p>
-                  <span className="chip chip--gray">nicht verbunden</span>
+                  <span className="chip chip--gray">nicht verbunden</span>{' '}
+                  <a className="btn btn--primary select--inline" href="/api/slack/oauth/start">
+                    Mit Slack verbinden (OAuth)
+                  </a>{' '}
+                  <span className="row-meta">oder manuell per Team-ID:</span>
                 </p>
                 <input
                   name="slackTeamId"

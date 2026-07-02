@@ -35,6 +35,7 @@ chat that answers with sources** — see
   - [Slack lokal testen](#slack-lokal-testen)
 - [Lebenszyklus & DSGVO (Phase 7)](#lebenszyklus--dsgvo-phase-7)
 - [Clerk-Synchronisation (Phase 8)](#clerk-synchronisation-phase-8)
+- [Slack produktionsreif (Phase 9)](#slack-produktionsreif-phase-9)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -887,6 +888,39 @@ Tests: `tests/clerk-sync.test.ts`.
 
 ---
 
+## Slack produktionsreif (Phase 9)
+
+Vier Betriebslücken des Slack-Eingangs geschlossen:
+
+1. **Token pro Installation.** Der Poster löst `bot_token_ref` PRO NACHRICHT
+   auf: `env:<NAME>` (manuelles Mapping), `enc:<payload>` (OAuth, AES-256-GCM
+   mit `SLACK_TOKEN_ENC_KEY` — Schlüssel in `.env`, DB hält nur Ciphertext),
+   ohne Ref → `env:SLACK_BOT_TOKEN`. Unbekanntes Schema/fehlende Variable ⇒
+   Fehler, nie ein stiller Post in den falschen Workspace. Multi-Workspace
+   funktioniert damit wirklich.
+2. **OAuth-Install-Flow.** `GET /api/slack/oauth/start` (nur Admin, signierter
+   State mit Ablauf bindet den Flow an GENAU diese Org) → Slack →
+   `GET /api/slack/oauth/callback` (Session-Org MUSS der State-Org entsprechen,
+   Code-Tausch injizierbar für Tests, Token wird verschlüsselt gespeichert über
+   `createSlackInstallation` — Admin-Gate, Audit, globales Team-Unique gelten).
+   Redirect-URL in der Slack-App: `https://<host>/api/slack/oauth/callback`.
+   Das manuelle Team-ID-Mapping bleibt als Fallback.
+3. **Keep-alive verdrahtet.** `src/instrumentation.ts` hängt Nexts `after()`
+   in `setDeferKeepAlive()` ein — auf Vercel/Lambda wird die deferte Arbeit
+   nicht mehr vom Einfrieren der Instanz abgeschnitten. Zusätzlich räumt jeder
+   verarbeitete Request die Idempotenz-Claims seines Tenants auf (>24 h,
+   deferred, best-effort) — weiterhin kein Cron nötig.
+4. **Rate-Limit.** In-App-Backstop (60/min pro IP, Fixed-Window, per Prozess)
+   VOR der Signaturprüfung ⇒ 429. Für harte Garantien gehört ein
+   Plattform-Limiter (z. B. Vercel WAF) davor; dieser hier schützt HMAC/DB
+   vor Garbage-Fluten.
+
+Neue Env-Variablen: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`,
+`SLACK_TOKEN_ENC_KEY` (siehe `.env.example`).
+Tests: `tests/slack-prod.test.ts`.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -1000,6 +1034,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ skill-catalog.test.ts            # catalog gate: read-only nie Freigabe + Disclosure, Angebot immer Freigabe, Rechnung-Schwelle
 │  ├─ clerk-sync.test.ts              # Phase-8 gate: Svix-Signatur, Offboarding kaskadiert Slack-Link, role_source, user.deleted
 │  ├─ lifecycle.test.ts               # Phase-7 gate: Löschpfade tenant-gebunden, Audit-Ausnahmen nur über die Gates
+│  ├─ slack-prod.test.ts              # Phase-9 gate: Token-Aufloesung, Crypto, OAuth-State, Rate-Limit, Claim-Cleanup
 │  ├─ slack.test.ts                    # Phase-6 gate: Signatur, Team→Org, User→Rolle, Disclosure via Slack, Buttons, RLS
 │  └─ slack-ack.test.ts                # Phase-6b gate: Ack-vor-Arbeit, Gates vor Ack, Idempotenz pro Tenant, deferWork-Fehlerpfade
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR

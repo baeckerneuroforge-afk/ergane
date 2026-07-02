@@ -40,8 +40,9 @@ import { approve, getSkill, reject, startRun, type SkillJson } from '../skills';
 import { withTenant } from '../tenant';
 import { postSlackMessage } from './client';
 import { deferWork } from './defer';
-import { claimSlackEvent } from './idempotency';
-import { getSlackUserLink, resolveSlackTeam } from './team';
+import { claimSlackEvent, cleanupProcessedSlackEvents } from './idempotency';
+import { checkRateLimit, clientKey } from './ratelimit';
+import { getSlackUserLink, resolveSlackTeam, type SlackInstallationRef } from './team';
 import { verifySlackSignature } from './verify';
 
 const USAGE =
@@ -85,6 +86,11 @@ async function auditSlack(
 /** Gate 1: signature over the raw body. Returns the raw body on success or the
  * 401 Response on failure — callers parse only AFTER this passed. */
 async function requireSignedBody(req: Request): Promise<{ rawBody: string } | Response> {
+  // In-app backstop against flooding the HMAC/DB path with garbage requests —
+  // BEFORE any crypto or parsing. Per-process; see src/lib/slack/ratelimit.ts.
+  if (!checkRateLimit(clientKey(req))) {
+    return new Response('rate limit exceeded', { status: 429 });
+  }
   const rawBody = await req.text();
   const ok = verifySlackSignature({
     signingSecret: process.env.SLACK_SIGNING_SECRET ?? '',
@@ -96,13 +102,27 @@ async function requireSignedBody(req: Request): Promise<{ rawBody: string } | Re
   return { rawBody };
 }
 
-/** Gate 2: team → org. Returns orgId or the 403 Response. */
-async function requireTeamOrg(teamId: string | null | undefined): Promise<string | Response> {
+/** Gate 2: team → org. Returns the installation (orgId + botTokenRef — the
+ * per-workspace token ref every outgoing message needs) or the 403 Response. */
+async function requireTeamOrg(
+  teamId: string | null | undefined,
+): Promise<SlackInstallationRef | Response> {
   const installation = await resolveSlackTeam(teamId);
   if (!installation) {
     return new Response('slack team is not mapped to an organization', { status: 403 });
   }
-  return installation.orgId;
+  return installation;
+}
+
+/** Post-claim housekeeping, deferred and best-effort: drop idempotency claims
+ * older than 24 h for this tenant (no cron in this stack — see README). */
+function deferClaimCleanup(orgId: string): void {
+  deferWork(
+    async () => {
+      await cleanupProcessedSlackEvents(orgId);
+    },
+    { label: 'idempotency:cleanup' },
+  );
 }
 
 /** Strip bot mentions like "<@U0BOT>" from an app_mention text. */
@@ -151,8 +171,9 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
     return new Response('ignored', { status: 200 });
   }
 
-  const orgId = await requireTeamOrg(payload.team_id);
-  if (orgId instanceof Response) return orgId;
+  const installation = await requireTeamOrg(payload.team_id);
+  if (installation instanceof Response) return installation;
+  const { orgId, botTokenRef } = installation;
 
   const event = payload.event;
   const isMention = event.type === 'app_mention';
@@ -176,6 +197,7 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
   if (!(await claimSlackEvent(orgId, eventKey))) {
     return new Response('duplicate delivery ignored', { status: 200 });
   }
+  deferClaimCleanup(orgId);
 
   const channel = event.channel;
   const threadTs = event.thread_ts ?? event.ts;
@@ -200,12 +222,14 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
         sources: result.sources,
       });
 
-      await postSlackMessage({ channel, thread_ts: threadTs, text: result.answer });
+      await postSlackMessage({ channel, thread_ts: threadTs, text: result.answer, botTokenRef });
     },
     {
       label: 'events:answer',
       onFailure: () =>
-        postSlackMessage({ channel, thread_ts: threadTs, text: WORK_FAILED, ephemeralUserId: slackUserId }),
+        postSlackMessage({
+          channel, thread_ts: threadTs, text: WORK_FAILED, ephemeralUserId: slackUserId, botTokenRef,
+        }),
     },
   );
 
@@ -258,8 +282,9 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
   if (signed instanceof Response) return signed;
 
   const params = new URLSearchParams(signed.rawBody);
-  const orgId = await requireTeamOrg(params.get('team_id'));
-  if (orgId instanceof Response) return orgId;
+  const installation = await requireTeamOrg(params.get('team_id'));
+  if (installation instanceof Response) return installation;
+  const { orgId, botTokenRef } = installation;
 
   const slackUserId = params.get('user_id');
   const teamId = params.get('team_id');
@@ -281,6 +306,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
     if (!(await claimCommand())) {
       return json({ response_type: 'ephemeral', text: 'Diese Anfrage wird bereits verarbeitet.' });
     }
+    deferClaimCleanup(orgId);
 
     // Ack-then-work: the immediate 200 body is the "in progress" note; the
     // answer follows via chat.postMessage into the channel.
@@ -301,12 +327,14 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
           sources: result.sources,
         });
 
-        await postSlackMessage({ channel, text: result.answer });
+        await postSlackMessage({ channel, text: result.answer, botTokenRef });
       },
       {
         label: 'commands:frage',
         onFailure: () =>
-          postSlackMessage({ channel, text: WORK_FAILED, ephemeralUserId: slackUserId ?? undefined }),
+          postSlackMessage({
+            channel, text: WORK_FAILED, ephemeralUserId: slackUserId ?? undefined, botTokenRef,
+          }),
       },
     );
 
@@ -351,6 +379,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
     if (!(await claimCommand())) {
       return json({ response_type: 'ephemeral', text: 'Diese Anfrage wird bereits verarbeitet.' });
     }
+    deferClaimCleanup(orgId);
 
     // Ack-then-work: the run (guardrail, steps, possibly pausing) executes
     // after the 200; outcome or approval buttons arrive via chat.postMessage.
@@ -376,6 +405,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
             channel,
             text: `Skill ${skill.key} wartet auf Freigabe${requiredRole}: ${reason}`,
             blocks: approvalBlocks(skill.key, handle.runId, `${reason}${requiredRole}`),
+            botTokenRef,
           });
           return;
         }
@@ -383,12 +413,15 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
         await postSlackMessage({
           channel,
           text: `Skill *${skill.key}* → Status: *${handle.status}* (Run \`${handle.runId}\`)`,
+          botTokenRef,
         });
       },
       {
         label: 'commands:skill',
         onFailure: () =>
-          postSlackMessage({ channel, text: WORK_FAILED, ephemeralUserId: slackUserId ?? undefined }),
+          postSlackMessage({
+            channel, text: WORK_FAILED, ephemeralUserId: slackUserId ?? undefined, botTokenRef,
+          }),
       },
     );
 
@@ -423,8 +456,9 @@ export async function handleSlackInteractions(req: Request): Promise<Response> {
 
   if (payload.type !== 'block_actions') return new Response('ignored', { status: 200 });
 
-  const orgId = await requireTeamOrg(payload.team?.id);
-  if (orgId instanceof Response) return orgId;
+  const installation = await requireTeamOrg(payload.team?.id);
+  if (installation instanceof Response) return installation;
+  const { orgId, botTokenRef } = installation;
 
   const action = payload.actions?.[0];
   const decision =
@@ -447,6 +481,7 @@ export async function handleSlackInteractions(req: Request): Promise<Response> {
       channel,
       thread_ts: threadTs,
       text,
+      botTokenRef,
       ...(ephemeral && slackUserId ? { ephemeralUserId: slackUserId } : {}),
     });
   };
@@ -469,6 +504,7 @@ export async function handleSlackInteractions(req: Request): Promise<Response> {
   if (!(await claimSlackEvent(orgId, eventKey))) {
     return new Response('duplicate delivery ignored', { status: 200 });
   }
+  deferClaimCleanup(orgId);
 
   // Ack-then-work: the decision executes after the 200; outcome (or the role-
   // gate error from the engine) is delivered into the thread.
