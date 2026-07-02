@@ -140,8 +140,13 @@ describe('extraction layer → existing ingestDocument pipeline', () => {
 
 describe('fail-closed handling', () => {
   it('scanned PDF without a text layer → clear error, NO document created', async () => {
+    // {ocr: null} = explicitly no provider — keeps this test deterministic
+    // regardless of whether ANTHROPIC_API_KEY is set in the local env.
     await expect(
-      extractText({ filename: 'scan.pdf', mimeType: 'application/pdf', data: fixture('scan.pdf') }),
+      extractText(
+        { filename: 'scan.pdf', mimeType: 'application/pdf', data: fixture('scan.pdf') },
+        { ocr: null },
+      ),
     ).rejects.toThrow(/Textebene/);
 
     const docs = await withTenant(ORG, (tx) => tx.document.findMany());

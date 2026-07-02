@@ -39,6 +39,7 @@ chat that answers with sources** — see
 - [RAG v2: Multi-Turn & Dokument-Versionen (Phase 10)](#rag-v2-multi-turn--dokument-versionen-phase-10)
 - [Echte Skill-Effekte (Phase 11)](#echte-skill-effekte-phase-11)
 - [Betrieb: Logging, Audit-UI, Deployment (Phase 12)](#betrieb-logging-audit-ui-deployment-phase-12)
+- [OCR für gescannte PDFs (Phase 17)](#ocr-für-gescannte-pdfs-phase-17)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -1074,6 +1075,29 @@ Einmalige manuelle Schritte (nur mit Vercel-/Slack-/Clerk-Zugang möglich):
 
 ---
 
+## OCR für gescannte PDFs (Phase 17)
+
+Gescannte PDFs ohne Textebene wurden bisher abgelehnt — jetzt werden sie
+transkribiert, wenn ein OCR-Provider konfiguriert ist (`src/lib/ingest/ocr.ts`,
+Provider-Muster wie AI/Effects):
+
+- **Real-Adapter = Claude über die bestehende Anthropic-Abhängigkeit**: die
+  Messages-API liest PDFs nativ (Base64-Document-Block, Vision für Scans) —
+  kein neuer Vendor, kein Rasterizer. Aktiv, sobald `ANTHROPIC_API_KEY`
+  gesetzt ist.
+- **Fail-closed bleibt**: ohne Provider werden Scans exakt wie bisher mit
+  klarer Meldung abgelehnt; OCR-Fehler oder leere Transkription ⇒
+  `ExtractionError`, nichts wird geschrieben. Die Factory hat bewusst KEINEN
+  Fake-Fallback — Tests injizieren den Fake explizit, ein fehlender Key kann
+  nie „pretend-OCR" in die Wissensbasis schreiben.
+- **Kosten-Guard**: Scans über `OCR_MAX_PAGES` (30) werden VOR jedem API-Call
+  abgelehnt. `meta.ocr = true` markiert transkribierte Dokumente; normale
+  Text-PDFs laufen nie durch OCR (getestet mit Provider-Spy).
+
+Tests: `tests/ingest-ocr.test.ts`.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -1187,6 +1211,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
 │  ├─ gdpr-scrub.test.ts              # Phase-14 gate: Detail-Scrubbing exakt/tenant-gebunden, Trigger-Regression
 │  ├─ hardening.test.ts               # Phase-16 gate: CSP-Nonces/Enforce-Schalter, Fehler-Sink maskiert
+│  ├─ ingest-ocr.test.ts              # Phase-17 gate: OCR fail-closed, Kosten-Guard, End-to-End
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ ops.test.ts                     # Phase-12 gate: Logger-Maskierung, queryAuditLog tenant-gebunden
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)

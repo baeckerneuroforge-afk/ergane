@@ -10,6 +10,7 @@
 // message. There is NO silent empty import.
 import mammoth from 'mammoth';
 import { extractText as extractPdfText } from 'unpdf';
+import { getOcrProvider, OCR_MAX_PAGES, type OcrProvider } from './ocr';
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
 
@@ -29,6 +30,8 @@ export interface ExtractMeta {
   /** PDF only; null for the other formats. */
   pageCount: number | null;
   wordCount: number;
+  /** true = the text came from OCR (scanned PDF, Phase 17). */
+  ocr?: boolean;
 }
 
 export interface ExtractResult {
@@ -120,7 +123,7 @@ export function cleanMarkdown(raw: string): string {
   return out.join('\n');
 }
 
-async function extractPdf(data: Uint8Array): Promise<ExtractResult> {
+async function extractPdf(data: Uint8Array, ocr: OcrProvider | null): Promise<ExtractResult> {
   let totalPages: number;
   let text: string;
   try {
@@ -130,9 +133,32 @@ async function extractPdf(data: Uint8Array): Promise<ExtractResult> {
   }
   const cleaned = text.trim();
   if (!cleaned) {
-    throw new ExtractionError(
-      'Gescanntes PDF ohne Textebene — OCR kommt später. Bitte ein Text-PDF hochladen.',
-    );
+    // Scanned PDF without a text layer. WITH a configured OCR provider the
+    // pages are transcribed (Phase 17, page-limited); WITHOUT one this stays
+    // the same fail-closed rejection as before — never a silent empty import.
+    if (!ocr) {
+      throw new ExtractionError(
+        'Gescanntes PDF ohne Textebene — OCR ist nicht konfiguriert (ANTHROPIC_API_KEY setzen). Bitte ein Text-PDF hochladen.',
+      );
+    }
+    if (totalPages > OCR_MAX_PAGES) {
+      throw new ExtractionError(
+        `Gescanntes PDF mit ${totalPages} Seiten — OCR ist auf ${OCR_MAX_PAGES} Seiten begrenzt (Kosten-Guard).`,
+      );
+    }
+    let ocrText: string;
+    try {
+      ocrText = (await ocr.extractPdfText(data)).trim();
+    } catch {
+      throw new ExtractionError('OCR fehlgeschlagen — bitte erneut versuchen oder ein Text-PDF hochladen.');
+    }
+    if (!ocrText) {
+      throw new ExtractionError('OCR fand keinen lesbaren Text in diesem Scan.');
+    }
+    return {
+      text: ocrText,
+      meta: { format: 'pdf', pageCount: totalPages, wordCount: countWords(ocrText), ocr: true },
+    };
   }
   return {
     text: cleaned,
@@ -167,7 +193,15 @@ function extractPlain(data: Uint8Array, format: 'md' | 'txt'): ExtractResult {
   return { text, meta: { format, pageCount: null, wordCount: countWords(text) } };
 }
 
-export async function extractText(input: ExtractInput): Promise<ExtractResult> {
+export interface ExtractOptions {
+  /** Injectable OCR provider (tests/demo). Default: env-selected (null = off). */
+  ocr?: OcrProvider | null;
+}
+
+export async function extractText(
+  input: ExtractInput,
+  options: ExtractOptions = {},
+): Promise<ExtractResult> {
   if (input.data.byteLength > MAX_FILE_BYTES) {
     throw new ExtractionError(
       `Datei zu groß (${(input.data.byteLength / 1024 / 1024).toFixed(1)} MB) — Limit sind 20 MB.`,
@@ -179,7 +213,7 @@ export async function extractText(input: ExtractInput): Promise<ExtractResult> {
   const format = detectFormat(input.filename, input.mimeType);
   switch (format) {
     case 'pdf':
-      return extractPdf(input.data);
+      return extractPdf(input.data, options.ocr !== undefined ? options.ocr : getOcrProvider());
     case 'docx':
       return extractDocx(input.data);
     case 'md':
