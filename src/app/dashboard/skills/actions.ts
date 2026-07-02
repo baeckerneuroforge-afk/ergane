@@ -46,7 +46,8 @@ export async function startSkillRun(formData: FormData) {
     if (!Number.isFinite(betragEur) || betragEur <= 0) {
       throw new Error('Betrag (EUR) muss eine positive Zahl sein.');
     }
-    input = { kunde, leistung, betragEur };
+    const email = String(formData.get('email') ?? '').trim();
+    input = { kunde, leistung, betragEur, ...(email ? { email } : {}) };
   } else if (skill.key === 'rechnung_erstellen') {
     const kunde = String(formData.get('kunde') ?? '').trim();
     if (!kunde) throw new Error('Kunde ist erforderlich.');
@@ -64,7 +65,8 @@ export async function startSkillRun(formData: FormData) {
       }
       return { bezeichnung, betragEur };
     });
-    input = { kunde, positionen };
+    const email = String(formData.get('email') ?? '').trim();
+    input = { kunde, positionen, ...(email ? { email } : {}) };
   } else {
     // Generic fallback for future catalog skills: validated JSON input.
     const raw = String(formData.get('inputJson') ?? '{}');

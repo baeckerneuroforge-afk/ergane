@@ -8,9 +8,20 @@
 // Threshold-Policies (Phase 4) ihn sehen, falls ein Tenant die Regel bewusst
 // lockert — der Default (keine Policy) ist immer Freigabe.
 //
-// Der Versand ist simuliert (Detail + Audit), wie alle Effekte des Katalogs.
+// Versand (Phase 11): mit input.email geht das Angebot WIRKLICH raus — als
+// PDF-Anhang über den Effekt-Provider (fake ohne RESEND_API_KEY, Resend mit).
+// Ohne email bleibt der Versand simuliert (voriges Verhalten). In beiden
+// Fällen läuft der Schritt erst NACH der menschlichen Freigabe.
+import { getEmailProvider, renderSimplePdf } from '../../effects';
 import type { SkillDef, SkillJson } from '../types';
 import { holeWissen, rolleAusInput } from './wissen';
+
+/** Optionale Empfänger-Adresse — nur ein plausibles a@b.c aktiviert den
+ * echten Versand (fail-closed: alles andere ⇒ simuliert). */
+export function emailAusInput(input: SkillJson): string | null {
+  const email = typeof input.email === 'string' ? input.email.trim() : '';
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
 
 export const ANGEBOT_GUARDRAIL_REASON =
   'Externe Kommunikation — Angebot verlässt das Unternehmen, Freigabe erforderlich';
@@ -92,13 +103,37 @@ export const angebotErstellen: SkillDef = {
       // nach menschlicher Freigabe (Guardrail triggert immer).
       name: 'versendet',
       acts: true,
-      run: async ({ input }) => {
+      run: async ({ input, state }) => {
         const { kunde, betragEur } = parseInput(input);
+        const email = emailAusInput(input);
+        if (!email) {
+          return {
+            versendet: true,
+            empfaenger: kunde,
+            betragEur,
+            simuliert: true, // keine Empfänger-Adresse ⇒ kein echter Versand
+          };
+        }
+
+        const entwurf = typeof state.angebot_entworfen?.entwurf === 'string'
+          ? state.angebot_entworfen.entwurf
+          : `Angebot für ${kunde}`;
+        const pdf = renderSimplePdf(`Angebot für ${kunde}`, entwurf.split('\n'));
+        const result = await getEmailProvider().send({
+          to: email,
+          subject: `Ihr Angebot über ${betragEur.toFixed(2)} EUR`,
+          text: entwurf,
+          attachment: { filename: 'angebot.pdf', content: pdf },
+        });
         return {
           versendet: true,
           empfaenger: kunde,
+          empfaengerEmail: email,
           betragEur,
-          simuliert: true, // kein echter E-Mail-/Portal-Versand in dieser Phase
+          simuliert: false,
+          emailId: result.id,
+          emailProvider: result.provider,
+          pdfBytes: pdf.length,
         };
       },
     },
