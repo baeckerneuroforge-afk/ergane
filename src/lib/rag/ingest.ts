@@ -44,6 +44,15 @@ export interface IngestDocumentInput {
   text: string;
   /** Disclosure level of the document (default 'open' — visible to every role). */
   visibility?: DocumentVisibility;
+  /**
+   * Optional ingestion metadata from the extraction layer (0005) — stored on
+   * the document row, pipeline otherwise unchanged.
+   */
+  meta?: {
+    sourceFormat?: string;
+    pageCount?: number | null;
+    wordCount?: number | null;
+  };
   /** Injectable for tests/demo; defaults to the env-selected provider. */
   embedder?: EmbeddingProvider;
 }
@@ -78,6 +87,9 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
         title,
         source: input.source,
         visibility: input.visibility ?? 'open',
+        sourceFormat: input.meta?.sourceFormat ?? null,
+        pageCount: input.meta?.pageCount ?? null,
+        wordCount: input.meta?.wordCount ?? null,
       },
     });
     // Belt-and-suspenders: WITH CHECK already guaranteed this.

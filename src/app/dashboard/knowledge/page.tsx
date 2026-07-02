@@ -3,6 +3,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { withTenant } from '@/lib/tenant';
 import { VisibilityBadge, formatDateTime } from '../ui';
 import { addDocument, changeVisibility } from './actions';
+import { UploadDropzone } from './upload';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,14 +28,22 @@ export default async function KnowledgePage() {
       </p>
 
       <section className="card">
-        <h2>Dokument anlegen</h2>
+        <h2>Dateien hochladen</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          PDF, DOCX, Markdown und Text werden serverseitig extrahiert und durch dieselbe
+          Chunking-/Embedding-Pipeline ingestiert. Gescannte PDFs ohne Textebene werden
+          abgelehnt (OCR kommt später).
+        </p>
+        <UploadDropzone />
+      </section>
+
+      <section className="card">
+        <h2>Text manuell anlegen</h2>
         <form action={addDocument}>
           <label htmlFor="title">Titel</label>
           <input id="title" name="title" placeholder="z. B. Urlaubsrichtlinie 2026" required />
           <label htmlFor="text">Text</label>
           <textarea id="text" name="text" rows={5} placeholder="Wissen hier einfügen…" />
-          <label htmlFor="file">…oder .txt-Datei hochladen (serverseitig gelesen)</label>
-          <input id="file" name="file" type="file" accept=".txt,text/plain" />
           <label htmlFor="visibility">Sichtbarkeit</label>
           <select id="visibility" name="visibility" defaultValue="open">
             <option value="open">open — alle Rollen</option>
@@ -58,6 +67,7 @@ export default async function KnowledgePage() {
             <thead>
               <tr>
                 <th>Titel</th>
+                <th>Format</th>
                 <th>Sichtbarkeit</th>
                 <th>Datum</th>
                 <th>Chunks</th>
@@ -69,6 +79,13 @@ export default async function KnowledgePage() {
                   <td>
                     <strong>{doc.title}</strong>
                     <div className="row-meta">{doc.source}</div>
+                  </td>
+                  <td>
+                    <span className="chip chip--gray">{doc.sourceFormat ?? 'text'}</span>
+                    <div className="row-meta">
+                      {doc.pageCount != null ? `${doc.pageCount} Seiten · ` : ''}
+                      {doc.wordCount != null ? `${doc.wordCount} Wörter` : '—'}
+                    </div>
                   </td>
                   <td>
                     <VisibilityBadge visibility={doc.visibility} />

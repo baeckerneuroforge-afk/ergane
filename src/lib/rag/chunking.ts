@@ -32,8 +32,19 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
     if (p.length <= maxChars) {
       pieces.push(p);
     } else {
-      for (let i = 0; i < p.length; i += maxChars - overlapChars) {
-        pieces.push(p.slice(i, i + maxChars));
+      // Hard-split fallback for a single oversize paragraph. Additive
+      // refinement (0005): prefer breaking at a whitespace near the limit so
+      // words survive intact; only a pathological 600+-char "word" is cut.
+      let start = 0;
+      while (start < p.length) {
+        let end = Math.min(start + maxChars, p.length);
+        if (end < p.length) {
+          const ws = p.lastIndexOf(' ', end);
+          if (ws > start + maxChars / 2) end = ws;
+        }
+        pieces.push(p.slice(start, end).trim());
+        if (end >= p.length) break;
+        start = Math.max(end - overlapChars, start + 1);
       }
     }
   }
