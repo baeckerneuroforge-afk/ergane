@@ -26,12 +26,19 @@ function splitSources(content: string): { text: string; sources: string[] } {
 }
 
 export default async function ChatPage() {
-  const { orgId } = await requireTenant();
+  const { orgId, userId } = await requireTenant();
 
-  // Last 50 messages of THIS tenant — via withTenant, enforced by RLS.
+  // Last 50 messages of THIS USER in THIS tenant. Per-actor since 0010: chat
+  // answers can contain role-gated knowledge, so showing the whole org's
+  // history would leak a lead's confidential answers to members. Pre-0010
+  // rows (actor_id NULL) stay hidden — fail-closed.
   const messages = (
     await withTenant(orgId, (tx) =>
-      tx.chatMessage.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }),
+      tx.chatMessage.findMany({
+        where: { actorId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
     )
   ).reverse();
 

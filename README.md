@@ -36,6 +36,7 @@ chat that answers with sources** — see
 - [Lebenszyklus & DSGVO (Phase 7)](#lebenszyklus--dsgvo-phase-7)
 - [Clerk-Synchronisation (Phase 8)](#clerk-synchronisation-phase-8)
 - [Slack produktionsreif (Phase 9)](#slack-produktionsreif-phase-9)
+- [RAG v2: Multi-Turn & Dokument-Versionen (Phase 10)](#rag-v2-multi-turn--dokument-versionen-phase-10)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -921,6 +922,31 @@ Tests: `tests/slack-prod.test.ts`.
 
 ---
 
+## RAG v2: Multi-Turn & Dokument-Versionen (Phase 10)
+
+**Multi-Turn mit Disclosure-Invariante.** `answerQuestion()` nimmt optional
+`history` (vorherige Gesprächs-Turns) in den LLM-Prompt — Retrieval nutzt
+weiterhin AUSSCHLIESSLICH die aktuelle Frage + Rolle. Die Historie ist strikt
+**pro Person**: `chat_messages.actor_id` (Migration 0010, nullable — alte
+Zeilen sind fail-closed nie Teil einer Historie), geladen nur über
+`loadChatHistory(orgId, actorId)`. Damit kann ein member niemals die
+confidential-Antworten eines leads über den Prompt erben — End-to-End
+getestet. Chat-UI und Slack-Fragen laufen beide über diesen Pfad; die
+Chat-Seite zeigt seither auch nur noch die EIGENE Historie (die org-weite
+Anzeige hätte role-gated Antworten an alle geleakt — behoben).
+
+**Dokument-Versionen (Re-Ingest).** `ingestDocument({ replaceDocumentId })`
+ersetzt den Inhalt eines bestehenden Dokuments atomar in einer Transaktion:
+alte Chunks weg, neue rein, gleiche Dokument-ID (nichts bricht), Audit
+`knowledge.reingested`. Sichtbarkeit bleibt erhalten, wenn keine neue
+angegeben wird (fail-closed: ein confidential-Dokument wird durch ein Update
+nicht versehentlich open). UI: „Neue Version" pro Dokument in der
+Wissensbasis. Fremde Dokument-IDs sind unter RLS „not found".
+
+Tests: `tests/rag-v2.test.ts`.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -1027,6 +1053,7 @@ cross-tenant checks are designed to catch it.
 ├─ tests/
 │  ├─ isolation.test.ts                # THE canonical isolation gate
 │  ├─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
+│  ├─ rag-v2.test.ts                   # Phase-10 gate: Multi-Turn pro Actor (fail-closed), Re-Ingest
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking

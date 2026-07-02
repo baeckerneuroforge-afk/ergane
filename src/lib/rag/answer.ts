@@ -44,6 +44,12 @@ Rules:
 - Do NOT list or repeat your sources and do not add a "${SOURCES_MARKER}" line — the system appends the canonical sources line itself.
 - Answer in the language of the question, concisely.`;
 
+/** One prior turn of the SAME actor's conversation (see loadChatHistory). */
+export interface ChatHistoryTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface AnswerQuestionInput {
   orgId: string;
   actorId: string;
@@ -51,6 +57,14 @@ export interface AnswerQuestionInput {
   k?: number;
   embedder?: EmbeddingProvider;
   chat?: ChatProvider;
+  /**
+   * Prior turns fed into the LLM prompt for follow-up questions (multi-turn).
+   * DISCLOSURE INVARIANT: retrieval uses ONLY the current question + role —
+   * history goes into the prompt, never into retrieval. Callers must load
+   * history per ACTOR (loadChatHistory), so nobody receives another person's
+   * answers through the prompt. Omitted ⇒ single-turn (previous behavior).
+   */
+  history?: ChatHistoryTurn[];
   /**
    * Role of the asker — passed through to retrieve()'s disclosure filter.
    * Knowledge invisible to the role is simply never retrieved, so the honest
@@ -108,7 +122,10 @@ export async function answerQuestion(input: AnswerQuestionInput): Promise<Answer
     const chat = input.chat ?? getChatProvider();
     const raw = await chat.complete({
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserMessage(question, relevant) }],
+      messages: [
+        ...(input.history ?? []),
+        { role: 'user', content: buildUserMessage(question, relevant) },
+      ],
     });
     const cleaned = stripModelSourceLines(raw);
     if (cleaned.includes(NO_KNOWLEDGE_ANSWER)) {
@@ -122,10 +139,10 @@ export async function answerQuestion(input: AnswerQuestionInput): Promise<Answer
 
   await withTenant(input.orgId, async (tx) => {
     await tx.chatMessage.create({
-      data: { orgId: input.orgId, role: 'user', content: question },
+      data: { orgId: input.orgId, role: 'user', content: question, actorId: input.actorId },
     });
     await tx.chatMessage.create({
-      data: { orgId: input.orgId, role: 'assistant', content: answer },
+      data: { orgId: input.orgId, role: 'assistant', content: answer, actorId: input.actorId },
     });
     await logAudit(tx, {
       orgId: input.orgId,
@@ -137,4 +154,28 @@ export async function answerQuestion(input: AnswerQuestionInput): Promise<Answer
   });
 
   return { answer, sources, usedChunks: relevant };
+}
+
+/**
+ * Load the last `limit` turns of THIS actor's conversation, oldest first —
+ * the only sanctioned source for AnswerQuestionInput.history. Scoped per
+ * actor: rows of other users (and pre-0010 rows with actor_id NULL) never
+ * load, so prompt history cannot leak another person's disclosed knowledge.
+ */
+export async function loadChatHistory(
+  orgId: string,
+  actorId: string,
+  limit = 10,
+): Promise<ChatHistoryTurn[]> {
+  if (!actorId) return [];
+  const rows = await withTenant(orgId, (tx) =>
+    tx.chatMessage.findMany({
+      where: { actorId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    }),
+  );
+  return rows
+    .reverse()
+    .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('assistant' as const), content: m.content }));
 }

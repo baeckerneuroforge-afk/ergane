@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { withTenant } from '@/lib/tenant';
 import { VisibilityBadge, formatDateTime } from '../ui';
-import { addDocument, changeVisibility, removeDocument } from './actions';
+import { addDocument, changeVisibility, reingestUpload, removeDocument } from './actions';
 import { UploadDropzone } from './upload';
 
 export const dynamic = 'force-dynamic';
@@ -116,7 +116,32 @@ export default async function KnowledgePage() {
                   </td>
                   <td className="mono">{doc._count.chunks}</td>
                   {isAdmin ? (
-                    <td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <form
+                        action={async (formData: FormData) => {
+                          'use server';
+                          await reingestUpload(formData);
+                        }}
+                        style={{ display: 'inline-block', marginRight: '0.5rem' }}
+                      >
+                        <input type="hidden" name="documentId" value={doc.id} />
+                        <input type="hidden" name="title" value={doc.title} />
+                        <input
+                          type="file"
+                          name="file"
+                          accept=".pdf,.docx,.md,.txt"
+                          className="select--inline"
+                          style={{ maxWidth: '11rem' }}
+                          aria-label={`Neue Version für ${doc.title}`}
+                        />
+                        <button
+                          type="submit"
+                          className="btn btn--ghost select--inline"
+                          title="Ersetzt den Inhalt dieses Dokuments (gleiche ID, alte Chunks weg)"
+                        >
+                          Neue Version
+                        </button>
+                      </form>
                       <form action={removeDocument} style={{ display: 'inline-block' }}>
                         <input type="hidden" name="documentId" value={doc.id} />
                         <button

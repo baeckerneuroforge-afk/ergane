@@ -359,11 +359,15 @@ model ChatMessage {
   orgId     String   @map("org_id") @db.Uuid
   role      ChatRole
   content   String
+  /// Who this turn belongs to (Clerk user id or 'slack:U…'). NULL = pre-0010
+  /// row — fail-closed: never part of anyone's multi-turn history.
+  actorId   String?  @map("actor_id")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+  @@index([orgId, actorId, createdAt])
   @@map("chat_messages")
 }
 

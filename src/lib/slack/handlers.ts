@@ -35,7 +35,7 @@
 // Slack needs the challenge value in the response body, there is no work to
 // defer.
 import { logAudit } from '../audit';
-import { answerQuestion } from '../rag';
+import { answerQuestion, loadChatHistory } from '../rag';
 import { approve, getSkill, reject, startRun, type SkillJson } from '../skills';
 import { withTenant } from '../tenant';
 import { postSlackMessage } from './client';
@@ -207,11 +207,14 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
   // Ack-then-work: the answer (potentially a real LLM call) runs AFTER the 200.
   deferWork(
     async () => {
+      // Multi-turn: prior turns of THIS slack user only (per-actor history).
+      const history = await loadChatHistory(orgId, slackActor(slackUserId));
       const result = await answerQuestion({
         orgId,
         actorId: slackActor(slackUserId),
         question,
         role: link?.role,
+        history,
       });
 
       await auditSlack(orgId, slackUserId, 'slack.question_answered', question.slice(0, 120), {
@@ -312,11 +315,13 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
     // answer follows via chat.postMessage into the channel.
     deferWork(
       async () => {
+        const history = await loadChatHistory(orgId, slackActor(slackUserId));
         const result = await answerQuestion({
           orgId,
           actorId: slackActor(slackUserId),
           question,
           role: link?.role,
+          history,
         });
 
         await auditSlack(orgId, slackUserId, 'slack.question_answered', question.slice(0, 120), {

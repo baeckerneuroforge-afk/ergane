@@ -3,5 +3,5 @@ export { ingestDocument } from './ingest';
 export type { IngestDocumentInput, IngestDocumentResult } from './ingest';
 export { retrieve } from './retrieve';
 export type { RetrievedChunk, RetrieveInput } from './retrieve';
-export { answerQuestion, NO_KNOWLEDGE_ANSWER, SOURCES_MARKER } from './answer';
-export type { AnswerQuestionInput, AnswerQuestionResult } from './answer';
+export { answerQuestion, loadChatHistory, NO_KNOWLEDGE_ANSWER, SOURCES_MARKER } from './answer';
+export type { AnswerQuestionInput, AnswerQuestionResult, ChatHistoryTurn } from './answer';

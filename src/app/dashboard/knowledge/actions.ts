@@ -126,6 +126,53 @@ export async function ingestUpload(formData: FormData): Promise<UploadFileResult
 }
 
 /**
+ * Re-ingest a NEW VERSION of an existing document from an uploaded file.
+ * Same pipeline as ingestUpload, but the document keeps its id: old chunks are
+ * replaced atomically (ingestDocument's replaceDocumentId path), retrieval
+ * sees only the new version — no duplicate documents from re-uploads.
+ */
+export async function reingestUpload(formData: FormData): Promise<UploadFileResult> {
+  const documentId = String(formData.get('documentId') ?? '').trim();
+  const file = formData.get('file');
+  if (!documentId || !(file instanceof File) || file.size === 0) {
+    return { fileName: 'unbekannt', ok: false, error: 'Dokument-ID und Datei sind erforderlich.' };
+  }
+
+  try {
+    if (file.size > MAX_FILE_BYTES) {
+      throw new ExtractionError('Datei zu groß — Limit sind 20 MB.');
+    }
+    const { text, meta } = await extractText({
+      filename: file.name,
+      mimeType: file.type,
+      data: new Uint8Array(await file.arrayBuffer()),
+    });
+    const title = String(formData.get('title') ?? '').trim() || file.name.replace(/\.[^.]+$/, '');
+
+    const { orgId, userId } = await requireTenant();
+    const { chunkCount } = await ingestDocument({
+      orgId,
+      actorId: userId,
+      title,
+      source: 'upload',
+      text,
+      replaceDocumentId: documentId,
+      meta: { sourceFormat: meta.format, pageCount: meta.pageCount, wordCount: meta.wordCount },
+    });
+
+    revalidatePath('/dashboard/knowledge');
+    return { fileName: file.name, ok: true, chunkCount, format: meta.format };
+  } catch (err) {
+    const message =
+      err instanceof ExtractionError
+        ? err.message
+        : 'Neue Version fehlgeschlagen — bitte erneut versuchen.';
+    if (!(err instanceof ExtractionError)) console.error('reingestUpload failed:', err);
+    return { fileName: file.name, ok: false, error: message };
+  }
+}
+
+/**
  * Delete a document (chunks cascade). Admin gate + audit live in the lifecycle
  * function; this action parses the form and resolves the tenant/membership.
  */

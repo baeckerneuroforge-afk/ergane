@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
-import { answerQuestion } from '@/lib/rag';
+import { answerQuestion, loadChatHistory } from '@/lib/rag';
 
 /**
  * Ask the knowledge base a question (RAG).
@@ -18,7 +18,9 @@ export async function askQuestion(formData: FormData) {
 
   // The asker's role gates which knowledge is retrievable (disclosure policy).
   const { orgId, userId, role } = await requireTenant();
-  await answerQuestion({ orgId, actorId: userId, question, role });
+  // Multi-turn: prior turns of THIS user only (per-actor history — see 0010).
+  const history = await loadChatHistory(orgId, userId);
+  await answerQuestion({ orgId, actorId: userId, question, role, history });
 
   revalidatePath('/dashboard/chat');
 }

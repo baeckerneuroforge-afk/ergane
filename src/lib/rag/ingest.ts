@@ -55,6 +55,14 @@ export interface IngestDocumentInput {
   };
   /** Injectable for tests/demo; defaults to the env-selected provider. */
   embedder?: EmbeddingProvider;
+  /**
+   * Re-ingest: replace THIS existing document's content in one transaction
+   * (old chunks deleted, new chunks written, document row updated, audit
+   * 'knowledge.reingested'). The id must belong to the caller's tenant — a
+   * foreign id is "not found" under RLS. The document keeps its id, so
+   * nothing referencing it breaks; retrieval sees only the new version.
+   */
+  replaceDocumentId?: string;
 }
 
 export interface IngestDocumentResult {
@@ -81,17 +89,38 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
   assertDimensions(vectors, embedder);
 
   return withTenant(input.orgId, async (tx) => {
-    const document = await tx.document.create({
-      data: {
-        orgId: input.orgId,
-        title,
-        source: input.source,
-        visibility: input.visibility ?? 'open',
-        sourceFormat: input.meta?.sourceFormat ?? null,
-        pageCount: input.meta?.pageCount ?? null,
-        wordCount: input.meta?.wordCount ?? null,
-      },
-    });
+    let document;
+    if (input.replaceDocumentId) {
+      // Version replacement: same document id, fresh content. RLS scopes the
+      // lookup — a foreign id fails as "not found".
+      const existing = await tx.document.findUniqueOrThrow({
+        where: { id: input.replaceDocumentId },
+      });
+      await tx.chunk.deleteMany({ where: { documentId: existing.id } });
+      document = await tx.document.update({
+        where: { id: existing.id },
+        data: {
+          title,
+          source: input.source,
+          visibility: input.visibility ?? existing.visibility,
+          sourceFormat: input.meta?.sourceFormat ?? existing.sourceFormat,
+          pageCount: input.meta?.pageCount ?? null,
+          wordCount: input.meta?.wordCount ?? null,
+        },
+      });
+    } else {
+      document = await tx.document.create({
+        data: {
+          orgId: input.orgId,
+          title,
+          source: input.source,
+          visibility: input.visibility ?? 'open',
+          sourceFormat: input.meta?.sourceFormat ?? null,
+          pageCount: input.meta?.pageCount ?? null,
+          wordCount: input.meta?.wordCount ?? null,
+        },
+      });
+    }
     // Belt-and-suspenders: WITH CHECK already guaranteed this.
     if (document.orgId !== input.orgId) {
       throw new Error('Tenant mismatch: refusing to persist cross-tenant data.');
@@ -111,8 +140,9 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
       orgId: input.orgId,
       actorId: input.actorId,
       actorType: 'agent',
-      action: 'knowledge.ingested',
+      action: input.replaceDocumentId ? 'knowledge.reingested' : 'knowledge.ingested',
       target: title,
+      detail: input.replaceDocumentId ? { documentId: document.id } : undefined,
     });
 
     return { documentId: document.id, chunkCount: contents.length };
