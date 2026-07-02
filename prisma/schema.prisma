@@ -279,6 +279,9 @@ model Membership {
   orgId     String   @map("org_id") @db.Uuid
   userId    String   @map("user_id")
   role      Role     @default(member)
+  /// 'clerk' = role mirrors Clerk (overwritten on sync); 'local' = set in
+  /// ergane (e.g. 'lead') and never touched by a Clerk sync.
+  roleSource String  @default("clerk") @map("role_source")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization   Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)

@@ -248,7 +248,9 @@ export async function setMembershipRole(input: SetMembershipRoleInput): Promise<
 
     const saved = await tx.membership.update({
       where: { id: membership.id },
-      data: { role },
+      // role_source 'local': a deliberately assigned role (e.g. 'lead') is
+      // never overwritten by the Clerk mirror (ensureOrgAndMembership/webhook).
+      data: { role, roleSource: 'local' },
     });
     await logAudit(tx, {
       orgId,

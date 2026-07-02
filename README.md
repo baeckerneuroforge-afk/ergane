@@ -34,6 +34,7 @@ chat that answers with sources** — see
   - [Slack: ack-then-work & Idempotenz](#slack-ack-then-work--idempotenz)
   - [Slack lokal testen](#slack-lokal-testen)
 - [Lebenszyklus & DSGVO (Phase 7)](#lebenszyklus--dsgvo-phase-7)
+- [Clerk-Synchronisation (Phase 8)](#clerk-synchronisation-phase-8)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -858,6 +859,34 @@ Demo: **`pnpm demo:lifecycle`** (Anlegen → Export → Löschen → Pseudonymis
 
 ---
 
+## Clerk-Synchronisation (Phase 8)
+
+Clerk ist die Quelle der Wahrheit für WER zu WELCHER Org gehört — bisher wurde
+aber nur beim Dashboard-Laden gespiegelt. Die Lücke: ein in Clerk entfernter
+Nutzer behielt seine lokale Membership, damit Freigaberechte und Slack-Link.
+`POST /api/clerk/webhooks` (öffentlich, Svix-signatur-verifiziert wie der
+Slack-Eingang: HMAC über den rohen Body, ±5-Minuten-Fenster, ungültig ⇒ 401)
+schließt sie:
+
+| Event | Wirkung |
+| --- | --- |
+| `organizationMembership.deleted` | Membership weg; der Composite-FK kaskadiert den Slack-Link — die Person kann via Slack nichts mehr freigeben (End-to-End getestet) |
+| `organizationMembership.created/updated` | Membership gespiegelt/Rolle synchronisiert — aber NUR bei `role_source='clerk'` |
+| `user.deleted` | Memberships in ALLEN Orgs entfernt (`user_org_ids()`, Migration 0009 — dieselbe enge Bootstrap-Ausnahme wie der Slack-Team-Lookup) + Audit-Kennung pro Tenant pseudonymisiert (Phase-7-Funktion) |
+| `organization.deleted` | NUR Audit-Marker. Bewusst keine Auto-Löschung — Offboarding bleibt der explizite, bestätigte `deleteOrganization()`-Pfad |
+
+**`memberships.role_source`** (Migration 0009) behebt die dokumentierte Falle,
+dass ein lokal vergebenes `lead` beim nächsten Login vom Clerk-Mapping
+überschrieben wurde: `setMembershipRole()` markiert Rollen als `local`, und
+weder `ensureOrgAndMembership` noch der Webhook fassen `local`-Rollen an.
+
+Idempotenz: Org-Events claimen `clerk:<svix-id>` pro Tenant (derselbe
+atomare Mechanismus wie bei Slack); `user.deleted` ist von Natur aus
+idempotent. Secret: `CLERK_WEBHOOK_SECRET` (`whsec_…`) in `.env`.
+Tests: `tests/clerk-sync.test.ts`.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -969,6 +998,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)
 │  ├─ skill-catalog.test.ts            # catalog gate: read-only nie Freigabe + Disclosure, Angebot immer Freigabe, Rechnung-Schwelle
+│  ├─ clerk-sync.test.ts              # Phase-8 gate: Svix-Signatur, Offboarding kaskadiert Slack-Link, role_source, user.deleted
 │  ├─ lifecycle.test.ts               # Phase-7 gate: Löschpfade tenant-gebunden, Audit-Ausnahmen nur über die Gates
 │  ├─ slack.test.ts                    # Phase-6 gate: Signatur, Team→Org, User→Rolle, Disclosure via Slack, Buttons, RLS
 │  └─ slack-ack.test.ts                # Phase-6b gate: Ack-vor-Arbeit, Gates vor Ack, Idempotenz pro Tenant, deferWork-Fehlerpfade

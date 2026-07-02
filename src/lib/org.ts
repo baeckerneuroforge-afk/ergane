@@ -28,11 +28,21 @@ export async function ensureOrgAndMembership(opts: {
       update: { name: opts.name },
     });
 
-    await tx.membership.upsert({
+    // role_source 'local' (e.g. the org-internal 'lead' set via settings) is
+    // never overwritten by this Clerk mirror — only 'clerk'-sourced roles sync.
+    const existing = await tx.membership.findUnique({
       where: { orgId_userId: { orgId, userId: opts.userId } },
-      create: { orgId, userId: opts.userId, role: opts.role },
-      update: { role: opts.role },
     });
+    if (!existing) {
+      await tx.membership.create({
+        data: { orgId, userId: opts.userId, role: opts.role, roleSource: 'clerk' },
+      });
+    } else if (existing.roleSource === 'clerk' && existing.role !== opts.role) {
+      await tx.membership.update({
+        where: { id: existing.id },
+        data: { role: opts.role },
+      });
+    }
   });
 
   return orgId;
