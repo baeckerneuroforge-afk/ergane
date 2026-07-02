@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
 import { enforceChatRetention } from '@/lib/lifecycle';
-import { answerQuestion, loadChatHistory } from '@/lib/rag';
+import { answerQuestion, loadChatHistory, submitChatFeedback } from '@/lib/rag';
 import { deferWork } from '@/lib/slack/defer';
 
 /**
@@ -32,6 +32,22 @@ export async function askQuestion(formData: FormData) {
     },
     { label: 'chat:retention' },
   );
+
+  revalidatePath('/dashboard/chat');
+}
+
+/**
+ * Rate an assistant answer 👍/👎 — only answers of the CALLER's own
+ * conversation (enforced fail-closed in submitChatFeedback).
+ */
+export async function rateAnswer(formData: FormData) {
+  const messageId = String(formData.get('messageId') ?? '').trim();
+  const rawVerdict = String(formData.get('verdict') ?? '');
+  if (!messageId) throw new Error('messageId ist erforderlich.');
+  if (rawVerdict !== 'up' && rawVerdict !== 'down') throw new Error('Ungültige Bewertung.');
+
+  const { orgId, userId } = await requireTenant();
+  await submitChatFeedback({ orgId, actorId: userId, messageId, verdict: rawVerdict });
 
   revalidatePath('/dashboard/chat');
 }

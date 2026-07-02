@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { NO_KNOWLEDGE_ANSWER, SOURCES_MARKER } from '@/lib/rag';
 import { withTenant } from '@/lib/tenant';
-import { askQuestion } from './actions';
+import { getFeedbackStats, getOwnFeedback } from '@/lib/rag';
+import { askQuestion, rateAnswer } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,12 +43,23 @@ export default async function ChatPage() {
     )
   ).reverse();
 
+  // Feedback: the caller's own votes (active-button state) + org-wide counts.
+  const ownVotes = await getOwnFeedback(
+    orgId,
+    userId,
+    messages.filter((m) => m.role === 'assistant').map((m) => m.id),
+  );
+  const stats = await getFeedbackStats(orgId);
+
   return (
     <div className="chat-page">
       <p className="page-intro">
         Antworten kommen ausschließlich aus der{' '}
         <Link href="/dashboard/knowledge">Wissensbasis</Link> dieser Organisation — mit Quellen.
         Ohne passendes Wissen sagt der Assistent das ehrlich.
+        {stats.up + stats.down > 0 ? (
+          <span className="row-meta"> · Feedback bisher: {stats.up} 👍 / {stats.down} 👎</span>
+        ) : null}
       </p>
 
       <div className="chat-scroll">
@@ -79,6 +91,22 @@ export default async function ChatPage() {
                     ))}
                   </div>
                 ) : null}
+                <div className="bubble-sources" aria-label="Antwort bewerten">
+                  {(['up', 'down'] as const).map((verdict) => (
+                    <form key={verdict} action={rateAnswer} style={{ display: 'inline-block' }}>
+                      <input type="hidden" name="messageId" value={msg.id} />
+                      <input type="hidden" name="verdict" value={verdict} />
+                      <button
+                        type="submit"
+                        className="btn btn--ghost select--inline"
+                        title={verdict === 'up' ? 'Hilfreich' : 'Nicht hilfreich'}
+                        style={ownVotes[msg.id] === verdict ? { fontWeight: 700 } : undefined}
+                      >
+                        {verdict === 'up' ? '👍' : '👎'}
+                      </button>
+                    </form>
+                  ))}
+                </div>
               </div>
             );
           })

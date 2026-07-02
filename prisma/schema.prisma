@@ -115,6 +115,7 @@ model Organization {
   slackUserLinks     SlackUserLink[]
   slackProcessedEvents SlackProcessedEvent[]
   settings             OrgSettings?
+  chatFeedback         ChatFeedback[]
 
   @@map("organizations")
 }
@@ -369,6 +370,25 @@ model Chunk {
 }
 
 /// Chat history (tenant-scoped). RLS ENABLE + FORCE. org_id NOT NULL + FK.
+/// 👍/👎 per (message, voter) — RAG feedback loop (Phase 18). RLS ENABLE+FORCE.
+/// Composite FK (message_id, org_id) → chat_messages: cross-tenant votes are
+/// structurally impossible. Not audited (product telemetry, not governance).
+model ChatFeedback {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  actorId   String   @map("actor_id")
+  verdict   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  message      ChatMessage  @relation(fields: [messageId, orgId], references: [id, orgId], onDelete: Cascade)
+
+  @@unique([orgId, messageId, actorId])
+  @@index([orgId])
+  @@map("chat_feedback")
+}
+
 model ChatMessage {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId     String   @map("org_id") @db.Uuid
@@ -379,8 +399,10 @@ model ChatMessage {
   actorId   String?  @map("actor_id")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  organization Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  feedback     ChatFeedback[]
 
+  @@unique([id, orgId])
   @@index([orgId, createdAt])
   @@index([orgId, actorId, createdAt])
   @@map("chat_messages")

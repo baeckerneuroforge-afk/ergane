@@ -2,7 +2,7 @@
   "name": "ergane",
   "version": "0.1.0",
   "private": true,
-  "description": "ergane \u2014 GDPR-native, multi-tenant B2B foundation. Tenant isolation is enforced by the database (Postgres RLS + FORCE), not by application-code discipline.",
+  "description": "ergane — GDPR-native, multi-tenant B2B foundation. Tenant isolation is enforced by the database (Postgres RLS + FORCE), not by application-code discipline.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test",
     "postinstall": "prisma generate"
   },
   "prisma": {
@@ -46,6 +47,7 @@
     "unpdf": "^1.6.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

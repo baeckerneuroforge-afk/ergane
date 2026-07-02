@@ -40,6 +40,7 @@ chat that answers with sources** — see
 - [Echte Skill-Effekte (Phase 11)](#echte-skill-effekte-phase-11)
 - [Betrieb: Logging, Audit-UI, Deployment (Phase 12)](#betrieb-logging-audit-ui-deployment-phase-12)
 - [OCR für gescannte PDFs (Phase 17)](#ocr-für-gescannte-pdfs-phase-17)
+- [Feedback-Schleife & E2E-Smoke (Phase 18)](#feedback-schleife--e2e-smoke-phase-18)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -1098,6 +1099,29 @@ Tests: `tests/ingest-ocr.test.ts`.
 
 ---
 
+## Feedback-Schleife & E2E-Smoke (Phase 18)
+
+**👍/👎 auf Antworten** (`chat_feedback`, Migration 0013 nach Checkliste,
+Composite-FK auf `chat_messages` — Cross-Tenant-Votes strukturell unmöglich):
+bewertbar sind nur Assistent-Antworten der EIGENEN Konversation (fail-closed,
+deckt auch Alt-Zeilen ohne actor ab), Votes sind änderbar (ein Vote pro
+Nachricht/Person), bewusst nicht auditiert (Produkt-Telemetrie, keine
+Governance). Der Chat zeigt die org-weiten Zähler; **Re-Ranking bleibt ein
+dokumentierter Folgeschritt** — entschieden wird auf echten Nutzungsdaten,
+nicht vorab.
+
+**Playwright-Smoke** (`e2e/`, `pnpm e2e`): läuft nur gegen einen gesetzten
+`E2E_BASE_URL` (sonst self-skip, CI-sicher) und prüft heute Health + den
+Sign-in-Redirect des Tenant-Guards. Der Golden-Path (Login via
+`@clerk/testing` → Dokument → Frage mit Quelle → Skill → Freigabe → Audit)
+ist als nächster Ausbauschritt im Spec dokumentiert — er braucht
+Clerk-Test-Credentials. Browser einmalig:
+`pnpm exec playwright install chromium`.
+
+Tests: `tests/feedback.test.ts`.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -1209,6 +1233,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ skill-effects.test.ts            # Phase-11 gate: Effekt nur nach Freigabe, Fake/Prod-Factory, PDF-Writer
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
+│  ├─ feedback.test.ts                # Phase-18 gate: Feedback nur eigene Konversation, RLS, Composite-FK
 │  ├─ gdpr-scrub.test.ts              # Phase-14 gate: Detail-Scrubbing exakt/tenant-gebunden, Trigger-Regression
 │  ├─ hardening.test.ts               # Phase-16 gate: CSP-Nonces/Enforce-Schalter, Fehler-Sink maskiert
 │  ├─ ingest-ocr.test.ts              # Phase-17 gate: OCR fail-closed, Kosten-Guard, End-to-End
