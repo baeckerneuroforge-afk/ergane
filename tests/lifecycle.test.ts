@@ -218,10 +218,10 @@ describe('pseudonymizeAuditActor', () => {
       });
     });
 
-    const count = await pseudonymizeAuditActor({
+    const result = await pseudonymizeAuditActor({
       orgId: ORG_A, actorUserId: ADMIN, oldActorId: 'victim_user', newActorId: 'erased-1',
     });
-    expect(count).toBe(1);
+    expect(result.actorRows).toBe(1);
 
     const aAudit = await withTenant(ORG_A, (tx) => tx.auditLog.findMany());
     expect(aAudit.some((e) => e.actorId === 'victim_user')).toBe(false);

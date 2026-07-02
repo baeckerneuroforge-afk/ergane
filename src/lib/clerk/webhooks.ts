@@ -96,6 +96,13 @@ export async function handleClerkWebhook(req: Request): Promise<Response> {
     const orgs = await prisma.$queryRaw<Array<{ user_org_ids: string }>>`
       SELECT user_org_ids(${userId})`;
     for (const { user_org_ids: orgId } of orgs) {
+      // Capture the user's slack ids BEFORE the membership delete cascades the
+      // link away — 'slack:U…' actor ids and detail payloads need them.
+      const slackIds = await withTenant(orgId, async (tx) => {
+        const links = await tx.slackUserLink.findMany({ where: { userId } });
+        return links.map((l) => l.slackUserId);
+      });
+
       await withTenant(orgId, async (tx) => {
         await tx.membership.deleteMany({ where: { userId } }); // cascades slack link
         await logAudit(tx, {
@@ -107,12 +114,19 @@ export async function handleClerkWebhook(req: Request): Promise<Response> {
           detail: { reason: 'user.deleted', via: 'clerk-webhook' },
         });
       });
-      // Art. 17: erase the identifier from this tenant's audit trail. Uses an
-      // admin-independent path: the webhook IS the authority here, so we call
-      // the SQL function directly (the lifecycle wrapper checks a human admin).
-      await withTenant(orgId, (tx) =>
-        tx.$queryRaw`SELECT pseudonymize_audit_actor(${userId}, ${erasedActorId(userId)})`,
-      );
+
+      // Art. 17: erase every identifier shape of this person from the audit
+      // trail — actor_id AND detail JSON, for the clerk id and any slack ids.
+      // Admin-independent path: the webhook IS the authority here, so it calls
+      // the SQL functions directly (the lifecycle wrapper checks a human admin).
+      const erased = erasedActorId(userId);
+      const identifiers = [userId, ...slackIds.flatMap((sid) => [sid, `slack:${sid}`])];
+      await withTenant(orgId, async (tx) => {
+        for (const identifier of identifiers) {
+          await tx.$queryRaw`SELECT pseudonymize_audit_actor(${identifier}, ${erased})`;
+          await tx.$queryRaw`SELECT pseudonymize_audit_detail(${identifier}, ${erased})`;
+        }
+      });
     }
     return Response.json({ ok: true, orgs: orgs.length });
   }

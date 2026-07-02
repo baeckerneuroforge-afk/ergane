@@ -855,8 +855,12 @@ UPDATE/DELETE auf `audit_log` und KEIN DELETE auf `organizations`):
    entspricht. Nötig, weil der Append-only-Trigger sonst auch die
    FK-Kaskade `organizations → audit_log` blockiert.
 
-Bekannte, dokumentierte Grenze: `audit_log.detail`-JSON kann Kennungen tragen
-(z. B. `slackUserId`); das Scrubbing von detail-Payloads ist ein Folgeschritt.
+Seit Phase 14 werden auch **detail-Payloads gescrubbt**
+(`pseudonymize_audit_detail`, Migration 0011): jeder JSON-String-Wert, der der
+Kennung EXAKT entspricht, wird ersetzt — Substrings in längeren Werten nie
+(Exact-Token-Semantik, bewusst: keine versehentliche Korruption fremder
+Payloads). Der `user.deleted`-Webhook tilgt dabei ALLE Kennungs-Formen der
+Person (Clerk-ID, Slack-ID, `slack:<ID>`) aus `actor_id` UND `detail`.
 
 Demo: **`pnpm demo:lifecycle`** (Anlegen → Export → Löschen → Pseudonymisieren
 → Offboarding mit Nachweis). Tests: `tests/lifecycle.test.ts`.
@@ -1162,6 +1166,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ skill-effects.test.ts            # Phase-11 gate: Effekt nur nach Freigabe, Fake/Prod-Factory, PDF-Writer
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
+│  ├─ gdpr-scrub.test.ts              # Phase-14 gate: Detail-Scrubbing exakt/tenant-gebunden, Trigger-Regression
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ ops.test.ts                     # Phase-12 gate: Logger-Maskierung, queryAuditLog tenant-gebunden
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)

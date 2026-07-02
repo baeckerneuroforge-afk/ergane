@@ -19,8 +19,10 @@
 //     including the audit trail. The deletion proof is RETURNED to the caller
 //     (it cannot live in the DB that was just erased) and should be filed
 //     outside the system.
-//   - Known limitation: audit_log.detail JSON may still carry identifiers
-//     (e.g. slackUserId); scrubbing detail payloads is a documented follow-up.
+//   - Since Phase 14, detail JSON payloads are scrubbed too
+//     (pseudonymize_audit_detail, migration 0011): every string value that
+//     EXACTLY equals the identifier is replaced — substrings never (see the
+//     migration header for the exact-token semantics).
 import type { Role } from '@prisma/client';
 import { logAudit } from '../audit';
 import { getMemberRole } from '../policies';
@@ -186,7 +188,16 @@ export interface PseudonymizeActorInput {
   newActorId: string;
 }
 
-export async function pseudonymizeAuditActor(input: PseudonymizeActorInput): Promise<number> {
+export interface PseudonymizeResult {
+  /** audit rows whose actor_id was rewritten. */
+  actorRows: number;
+  /** audit rows whose detail JSON contained the identifier as an exact value. */
+  detailRows: number;
+}
+
+export async function pseudonymizeAuditActor(
+  input: PseudonymizeActorInput,
+): Promise<PseudonymizeResult> {
   if (!input.oldActorId.trim() || !input.newActorId.trim()) {
     throw new Error('pseudonymizeAuditActor: oldActorId and newActorId are required.');
   }
@@ -196,6 +207,11 @@ export async function pseudonymizeAuditActor(input: PseudonymizeActorInput): Pro
     const [{ pseudonymize_audit_actor: count }] = await tx.$queryRaw<
       Array<{ pseudonymize_audit_actor: number }>
     >`SELECT pseudonymize_audit_actor(${input.oldActorId}, ${input.newActorId})`;
+    // Phase 14: the identifier may also live inside detail JSON payloads
+    // (slackUserId, decidedBy, …) — scrub exact string values there too.
+    const [{ pseudonymize_audit_detail: detailRows }] = await tx.$queryRaw<
+      Array<{ pseudonymize_audit_detail: number }>
+    >`SELECT pseudonymize_audit_detail(${input.oldActorId}, ${input.newActorId})`;
 
     // The audit entry about the erasure must NOT contain the erased id — not
     // even as its author: when an admin erases their OWN id, the marker is
@@ -208,9 +224,9 @@ export async function pseudonymizeAuditActor(input: PseudonymizeActorInput): Pro
       actorType: 'human',
       action: 'audit.actor_pseudonymized',
       target: input.newActorId,
-      detail: { newActorId: input.newActorId, rewrittenEntries: count },
+      detail: { newActorId: input.newActorId, rewrittenEntries: count, rewrittenDetails: detailRows },
     });
-    return count;
+    return { actorRows: count, detailRows };
   });
 }
 

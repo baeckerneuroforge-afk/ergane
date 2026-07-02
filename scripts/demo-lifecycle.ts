@@ -77,7 +77,9 @@ async function main() {
     tx.auditLog.count({ where: { actorId: ADMIN } }),
   );
   if (leak !== 0) throw new Error('DEMO FAILED: alte Kennung noch im Audit.');
-  console.log(`\n4️⃣  Pseudonymisiert: ${rewritten} Audit-Einträge, alte Kennung 0× vorhanden.`);
+  console.log(
+    `\n4️⃣  Pseudonymisiert: ${rewritten.actorRows} Akteur-Einträge + ${rewritten.detailRows} Detail-Payloads, alte Kennung 0× vorhanden.`,
+  );
 
   // 5. Tenant-Offboarding mit Löschnachweis. (Die Pseudonymisierung betrifft
   // nur den Audit-Trail — die Membership des Admins besteht weiter.)
