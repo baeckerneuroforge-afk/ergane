@@ -38,6 +38,7 @@ import type { Role } from '@prisma/client';
 import { logAudit } from '../audit';
 import { prisma } from '../prisma';
 import { claimSlackEvent } from '../slack/idempotency';
+import { checkRateLimit, clientKey } from '../slack/ratelimit';
 import { withTenant } from '../tenant';
 import { clerkOrgIdToUuid } from '../uuid';
 import { verifySvixSignature } from './verify';
@@ -73,6 +74,10 @@ function erasedActorId(userId: string): string {
 }
 
 export async function handleClerkWebhook(req: Request): Promise<Response> {
+  // Same in-app flood backstop as the Slack endpoints — BEFORE any HMAC work.
+  if (!checkRateLimit(clientKey(req))) {
+    return new Response('rate limit exceeded', { status: 429 });
+  }
   const rawBody = await req.text();
   const svixId = req.headers.get('svix-id');
   const ok = verifySvixSignature({

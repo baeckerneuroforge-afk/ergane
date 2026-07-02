@@ -223,6 +223,7 @@ export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<s
     const slackUserLinks = await tx.slackUserLink.findMany();
     const slackProcessedEvents = await tx.slackProcessedEvent.findMany();
     const orgSettings = await tx.orgSettings.findUnique({ where: { orgId: input.orgId } });
+    const chatFeedback = await tx.chatFeedback.findMany();
     const auditLog = await tx.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
 
     const data = {
@@ -230,7 +231,7 @@ export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<s
       orgId: input.orgId,
       organization, memberships, knowledgeItems, documents, chunks, chatMessages,
       skillRuns, skillSteps, approvals, approvalPolicies, visibilityGrants,
-      slackInstallations, slackUserLinks, slackProcessedEvents, orgSettings, auditLog,
+      slackInstallations, slackUserLinks, slackProcessedEvents, orgSettings, chatFeedback, auditLog,
     };
 
     await logAudit(tx, {
@@ -355,6 +356,8 @@ export async function deleteOrganization(input: DeleteOrganizationInput): Promis
       slackInstallations: await tx.slackInstallation.count(),
       slackUserLinks: await tx.slackUserLink.count(),
       slackProcessedEvents: await tx.slackProcessedEvent.count(),
+      orgSettings: await tx.orgSettings.count(),
+      chatFeedback: await tx.chatFeedback.count(),
       auditLog: await tx.auditLog.count(),
     };
 
