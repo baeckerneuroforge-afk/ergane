@@ -8,6 +8,8 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ReactNode;
+  /** Only rendered for admin/owner — the server-side gates stay the truth. */
+  adminOnly?: boolean;
 }
 
 function Icon({ d }: { d: string }) {
@@ -64,6 +66,12 @@ const NAV: NavItem[] = [
     label: 'Audit',
     icon: <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
   },
+  {
+    href: '/dashboard/settings',
+    label: 'Einstellungen',
+    adminOnly: true,
+    icon: <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />,
+  },
 ];
 
 function pageTitle(pathname: string): string {
@@ -86,6 +94,8 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() ?? '/dashboard';
+  const isAdmin = role === 'admin' || role === 'owner';
+  const nav = NAV.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <div className="dash">
@@ -95,7 +105,7 @@ export function DashboardShell({
           <span className="dot">.</span>
         </Link>
         <nav className="nav">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active =
               item.href === '/dashboard'
                 ? pathname === '/dashboard'

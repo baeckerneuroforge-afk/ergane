@@ -17,7 +17,7 @@
 //
 // Only 'admin' (or the explicitly elevated 'owner') may change policies; every
 // change writes audit 'policy.changed' with { old, new } in detail.
-import type { ApprovalMode, ApprovalPolicy, DocumentVisibility, Role } from '@prisma/client';
+import type { ApprovalMode, ApprovalPolicy, DocumentVisibility, Membership, Role } from '@prisma/client';
 import { logAudit } from '../audit';
 import { withTenant, type Tx } from '../tenant';
 
@@ -192,5 +192,72 @@ export async function setVisibilityGrant(input: SetVisibilityGrantInput): Promis
       target: `visibility_grant:${level}:${role}`,
       detail: { level, role, old: Boolean(existing), new: allowed },
     });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Memberships (role administration)
+// -----------------------------------------------------------------------------
+
+/** Roles an admin may assign via the UI. 'owner' stays manual-elevation only. */
+const ASSIGNABLE_ROLES: Role[] = ['admin', 'lead', 'member'];
+
+export interface SetMembershipRoleInput {
+  orgId: string;
+  /** The human changing the role — must hold the admin role in this org. */
+  actorUserId: string;
+  /** The member whose role changes; must have a membership in THIS tenant. */
+  userId: string;
+  role: Role;
+}
+
+/**
+ * Change a member's role within the caller's tenant. Admin-only, RLS-scoped
+ * (a foreign userId is simply "not found"), and guarded so the tenant can never
+ * lose its last admin-tier member ('admin' or 'owner'). Every change writes
+ * audit 'membership.role_changed' with { old, new }.
+ */
+export async function setMembershipRole(input: SetMembershipRoleInput): Promise<Membership> {
+  const { orgId, actorUserId, userId, role } = input;
+  if (!userId.trim()) throw new Error('setMembershipRole: userId is required.');
+  if (!ASSIGNABLE_ROLES.includes(role)) {
+    throw new Error(`setMembershipRole: role must be one of ${ASSIGNABLE_ROLES.join('|')}.`);
+  }
+
+  return withTenant(orgId, async (tx) => {
+    await requireAdmin(tx, orgId, actorUserId);
+
+    const membership = await tx.membership.findUnique({
+      where: { orgId_userId: { orgId, userId } },
+    });
+    if (!membership) {
+      throw new Error(`setMembershipRole: no membership for user ${JSON.stringify(userId)} in this tenant.`);
+    }
+    if (membership.role === role) return membership; // no change, no audit noise
+
+    // Last-admin guard: demoting the only admin-tier member would lock the
+    // tenant out of all governance changes — refuse.
+    if (ADMIN_ROLES.includes(membership.role) && !ADMIN_ROLES.includes(role)) {
+      const adminCount = await tx.membership.count({ where: { role: { in: ADMIN_ROLES } } });
+      if (adminCount <= 1) {
+        throw new Error(
+          'setMembershipRole: cannot demote the last admin — at least one admin must remain.',
+        );
+      }
+    }
+
+    const saved = await tx.membership.update({
+      where: { id: membership.id },
+      data: { role },
+    });
+    await logAudit(tx, {
+      orgId,
+      actorId: actorUserId,
+      actorType: 'human',
+      action: 'membership.role_changed',
+      target: `membership:${userId}`,
+      detail: { userId, old: membership.role, new: role },
+    });
+    return saved;
   });
 }
