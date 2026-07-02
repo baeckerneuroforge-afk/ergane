@@ -74,15 +74,15 @@ export async function queryAuditLog(orgId: string, query: AuditQuery = {}): Prom
   };
 
   return withTenant(orgId, async (tx) => {
-    const [entries, total] = await Promise.all([
-      tx.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      tx.auditLog.count({ where }),
-    ]);
+    // Sequential on purpose: concurrent queries on one interactive-transaction
+    // client are unsupported (single pinned connection).
+    const entries = await tx.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    const total = await tx.auditLog.count({ where });
     return { entries, total, page, pageSize };
   });
 }

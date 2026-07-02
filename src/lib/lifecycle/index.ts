@@ -127,34 +127,33 @@ export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<s
   return withTenant(input.orgId, async (tx) => {
     await requireAdmin(tx, input.actorUserId);
 
-    const [
-      organization, memberships, knowledgeItems, documents, chunks, chatMessages,
-      skillRuns, skillSteps, approvals, approvalPolicies, visibilityGrants,
-      slackInstallations, slackUserLinks, auditLog,
-    ] = await Promise.all([
-      tx.organization.findUnique({ where: { id: input.orgId } }),
-      tx.membership.findMany(),
-      tx.knowledgeItem.findMany(),
-      tx.document.findMany(),
-      tx.$queryRaw<Array<{ id: string; document_id: string; content: string; ord: number }>>`
-        SELECT "id", "document_id", "content", "ord" FROM "chunks" ORDER BY "document_id", "ord"`,
-      tx.chatMessage.findMany({ orderBy: { createdAt: 'asc' } }),
-      tx.skillRun.findMany(),
-      tx.skillStep.findMany(),
-      tx.approval.findMany(),
-      tx.approvalPolicy.findMany(),
-      tx.visibilityGrant.findMany(),
-      tx.slackInstallation.findMany(),
-      tx.slackUserLink.findMany(),
-      tx.auditLog.findMany({ orderBy: { createdAt: 'asc' } }),
-    ]);
+    // SEQUENTIAL on purpose: an interactive Prisma transaction is one pinned
+    // connection — concurrent queries on the same tx client (Promise.all) are
+    // unsupported and can fail under load.
+    const organization = await tx.organization.findUnique({ where: { id: input.orgId } });
+    const memberships = await tx.membership.findMany();
+    const knowledgeItems = await tx.knowledgeItem.findMany();
+    const documents = await tx.document.findMany();
+    const chunks = await tx.$queryRaw<
+      Array<{ id: string; document_id: string; content: string; ord: number }>
+    >`SELECT "id", "document_id", "content", "ord" FROM "chunks" ORDER BY "document_id", "ord"`;
+    const chatMessages = await tx.chatMessage.findMany({ orderBy: { createdAt: 'asc' } });
+    const skillRuns = await tx.skillRun.findMany();
+    const skillSteps = await tx.skillStep.findMany();
+    const approvals = await tx.approval.findMany();
+    const approvalPolicies = await tx.approvalPolicy.findMany();
+    const visibilityGrants = await tx.visibilityGrant.findMany();
+    const slackInstallations = await tx.slackInstallation.findMany();
+    const slackUserLinks = await tx.slackUserLink.findMany();
+    const slackProcessedEvents = await tx.slackProcessedEvent.findMany();
+    const auditLog = await tx.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
 
     const data = {
       exportedAt: new Date().toISOString(),
       orgId: input.orgId,
       organization, memberships, knowledgeItems, documents, chunks, chatMessages,
       skillRuns, skillSteps, approvals, approvalPolicies, visibilityGrants,
-      slackInstallations, slackUserLinks, auditLog,
+      slackInstallations, slackUserLinks, slackProcessedEvents, auditLog,
     };
 
     await logAudit(tx, {
