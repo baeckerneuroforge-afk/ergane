@@ -124,6 +124,13 @@ export default async function SkillsPage() {
                       placeholder="z. B. 4800,00"
                       required
                     />
+                    <label htmlFor={`email-${skill.key}`}>Empfänger-E-Mail (optional — leer = simulierter Versand)</label>
+                    <input
+                      id={`email-${skill.key}`}
+                      name="email"
+                      type="email"
+                      placeholder="z. B. einkauf@kunde.de"
+                    />
                   </>
                 ) : skill.key === 'rechnung_erstellen' ? (
                   <>
@@ -141,6 +148,13 @@ export default async function SkillsPage() {
                       rows={3}
                       placeholder={'Beratung März; 950\nWorkshoptag; 480'}
                       required
+                    />
+                    <label htmlFor={`email-${skill.key}`}>Empfänger-E-Mail (optional — leer = simulierter Versand)</label>
+                    <input
+                      id={`email-${skill.key}`}
+                      name="email"
+                      type="email"
+                      placeholder="z. B. buchhaltung@kunde.de"
                     />
                   </>
                 ) : (

@@ -4,8 +4,12 @@
 // Der zweite GELD-Skill neben beleg_kontieren: handlesMoney:true, dieselbe
 // Betrag-Guardrail-Semantik (Summe über 1.000 € ⇒ awaiting_approval, bis ein
 // Mensch freigibt), amountOf liefert die Summe für Threshold-Policies.
-// Buchung/Versand sind simuliert (Detail + Audit) — keine echte Anbindung.
+// Buchung bleibt simuliert (keine Buchhaltungs-Anbindung); der VERSAND geht
+// mit input.email wirklich raus (PDF-Anhang, Effekt-Provider — Phase 11),
+// sonst simuliert. Beides erst nach Guardrail/Freigabe.
+import { getEmailProvider, renderSimplePdf } from '../../effects';
 import type { SkillDef, SkillJson } from '../types';
+import { emailAusInput } from './angebot_erstellen';
 
 export const RECHNUNG_GUARDRAIL_LIMIT_EUR = 1000;
 export const RECHNUNG_GUARDRAIL_REASON =
@@ -119,13 +123,44 @@ export const rechnungErstellen: SkillDef = {
       // Betrag-Guardrail (Summe > 1.000 € ⇒ erst nach menschlicher Freigabe).
       name: 'gebucht_versendet',
       acts: true,
-      run: async ({ input }) => {
-        const { kunde, summeEur } = parseInput(input);
+      run: async ({ input, state }) => {
+        const { kunde, positionen, summeEur } = parseInput(input);
+        const email = emailAusInput(input);
+        if (!email) {
+          return {
+            gebucht: true,
+            versendetAn: kunde,
+            summeEur,
+            simuliert: true, // keine Empfänger-Adresse ⇒ kein echter Versand
+          };
+        }
+
+        const rechnungstext = typeof state.rechnung_erzeugt?.rechnungstext === 'string'
+          ? state.rechnung_erzeugt.rechnungstext
+          : `Rechnung an ${kunde}`;
+        const zeilen = [
+          rechnungstext,
+          '',
+          ...positionen.map((p, i) => `${i + 1}. ${p.bezeichnung} — ${p.betragEur.toFixed(2)} EUR`),
+          '',
+          `Gesamtsumme: ${summeEur.toFixed(2)} EUR`,
+        ];
+        const pdf = renderSimplePdf(`Rechnung für ${kunde}`, zeilen);
+        const result = await getEmailProvider().send({
+          to: email,
+          subject: `Ihre Rechnung über ${summeEur.toFixed(2)} EUR`,
+          text: zeilen.join('\n'),
+          attachment: { filename: 'rechnung.pdf', content: pdf },
+        });
         return {
-          gebucht: true,
+          gebucht: true, // Buchung weiterhin simuliert (keine Buchhaltungs-Anbindung)
           versendetAn: kunde,
+          empfaengerEmail: email,
           summeEur,
-          simuliert: true, // keine echte Buchhaltungs-/Versand-Anbindung
+          simuliert: false,
+          emailId: result.id,
+          emailProvider: result.provider,
+          pdfBytes: pdf.length,
         };
       },
     },
