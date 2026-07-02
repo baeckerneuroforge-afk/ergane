@@ -111,8 +111,47 @@ model Organization {
   approvals      Approval[]
   approvalPolicies ApprovalPolicy[]
   visibilityGrants VisibilityGrant[]
+  slackInstallations SlackInstallation[]
+  slackUserLinks     SlackUserLink[]
 
   @@map("organizations")
+}
+
+/// One Slack workspace (team) mapped to EXACTLY ONE org (tenant-scoped).
+/// RLS ENABLE + FORCE. The GLOBAL unique on slack_team_id makes double-mapping
+/// structurally impossible. An extra SELECT-only lookup policy (see migration
+/// 0006) lets resolveSlackTeam() bootstrap team → org without a tenant context.
+/// bot_token_ref is a REFERENCE (e.g. 'env:SLACK_BOT_TOKEN'), never the secret.
+model SlackInstallation {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  slackTeamId String   @unique @map("slack_team_id")
+  botTokenRef String?  @map("bot_token_ref")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("slack_installations")
+}
+
+/// A Slack user mapped to a membership of THIS org (tenant-scoped).
+/// RLS ENABLE + FORCE. The composite FK (org_id, user_id) → memberships makes a
+/// link to a foreign tenant's membership structurally impossible; no link ⇒ the
+/// Slack user is treated as role-less (open knowledge only, never acts).
+model SlackUserLink {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  slackUserId String   @map("slack_user_id")
+  userId      String   @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [orgId, userId], references: [orgId, userId], onDelete: Cascade)
+
+  @@unique([orgId, slackUserId])
+  @@index([orgId])
+  @@map("slack_user_links")
 }
 
 /// Per-skill approval policy (tenant-scoped). RLS ENABLE + FORCE.
@@ -223,7 +262,8 @@ model Membership {
   role      Role     @default(member)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  slackUserLinks SlackUserLink[]
 
   @@unique([orgId, userId])
   @@index([orgId])

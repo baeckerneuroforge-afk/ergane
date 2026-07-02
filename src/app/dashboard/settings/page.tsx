@@ -10,7 +10,14 @@ import { requireTenant } from '@/lib/auth-context';
 import { withTenant } from '@/lib/tenant';
 import { listSkills } from '@/lib/skills';
 import { VisibilityBadge, formatEuro } from '../ui';
-import { saveApprovalPolicy, saveMembershipRole, saveVisibilityGrants } from './actions';
+import {
+  removeSlackUserLink,
+  saveApprovalPolicy,
+  saveMembershipRole,
+  saveSlackInstallation,
+  saveSlackUserLink,
+  saveVisibilityGrants,
+} from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +25,7 @@ const TABS = [
   { key: 'freigaben', label: 'Freigabe-Regeln' },
   { key: 'sichtbarkeit', label: 'Wissens-Sichtbarkeit' },
   { key: 'mitglieder', label: 'Mitglieder & Rollen' },
+  { key: 'slack', label: 'Slack' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -56,12 +64,15 @@ export default async function SettingsPage({
   const tab: TabKey = TABS.some((t) => t.key === params.tab) ? (params.tab as TabKey) : 'freigaben';
 
   const skills = listSkills();
-  const { policies, grants, documents, memberships } = await withTenant(orgId, async (tx) => ({
-    policies: await tx.approvalPolicy.findMany(),
-    grants: await tx.visibilityGrant.findMany(),
-    documents: await tx.document.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
-    memberships: await tx.membership.findMany({ orderBy: { createdAt: 'asc' } }),
-  }));
+  const { policies, grants, documents, memberships, slackInstallations, slackLinks } =
+    await withTenant(orgId, async (tx) => ({
+      policies: await tx.approvalPolicy.findMany(),
+      grants: await tx.visibilityGrant.findMany(),
+      documents: await tx.document.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
+      memberships: await tx.membership.findMany({ orderBy: { createdAt: 'asc' } }),
+      slackInstallations: await tx.slackInstallation.findMany({ orderBy: { createdAt: 'asc' } }),
+      slackLinks: await tx.slackUserLink.findMany({ orderBy: { createdAt: 'asc' } }),
+    }));
 
   const granted = new Set(grants.map((g) => `${g.level}:${g.role}`));
   const adminCount = memberships.filter((m) => m.role === 'admin' || m.role === 'owner').length;
@@ -281,6 +292,123 @@ export default async function SettingsPage({
             </tbody>
           </table>
         </section>
+      ) : null}
+
+      {tab === 'slack' ? (
+        <>
+          <section className="card">
+            <h2>Slack-Verbindung</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Ein Slack-Workspace (Team) wird auf genau <strong>eine</strong> Organisation gemappt.
+              Anfragen aus nicht gemappten Workspaces werden abgewiesen. MVP: die Team-ID wird
+              manuell eingetragen — ein OAuth-Install-Flow ist ein späterer Schritt. Der Bot-Token
+              bleibt in <code>.env</code> (<code>SLACK_BOT_TOKEN</code>); die Datenbank speichert
+              nur einen Verweis, nie das Secret.
+            </p>
+            {slackInstallations.length > 0 ? (
+              <p>
+                <span className="chip chip--indigo">verbunden</span>{' '}
+                Team{' '}
+                {slackInstallations.map((i) => (
+                  <code key={i.id} className="mono" style={{ marginRight: '0.4rem' }}>
+                    {i.slackTeamId}
+                  </code>
+                ))}
+              </p>
+            ) : (
+              <form action={saveSlackInstallation}>
+                <p>
+                  <span className="chip chip--gray">nicht verbunden</span>
+                </p>
+                <input
+                  name="slackTeamId"
+                  placeholder="Slack-Team-ID, z. B. T0123456789"
+                  className="select--inline"
+                  style={{ width: '16rem' }}
+                  required
+                />{' '}
+                <button type="submit" className="btn btn--primary select--inline">
+                  Workspace verbinden
+                </button>
+              </form>
+            )}
+          </section>
+
+          <section className="card card--table">
+            <h2 style={{ padding: '0.8rem 1.25rem 0' }}>
+              Slack-Nutzer ↔ Mitglieder ({slackLinks.length})
+            </h2>
+            <p className="muted" style={{ padding: '0 1.25rem' }}>
+              Nur verknüpfte Slack-Nutzer handeln mit ihrer Mitglieds-Rolle (Skills starten,
+              Freigaben erteilen). Unverknüpfte Nutzer sehen ausschließlich „open"-Wissen und
+              können nichts auslösen (fail-closed).
+            </p>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Slack-User-ID</th>
+                  <th>Mitglied</th>
+                  <th>Rolle</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {slackLinks.map((link) => {
+                  const member = memberships.find((m) => m.userId === link.userId);
+                  return (
+                    <tr key={link.id}>
+                      <td className="mono">{link.slackUserId}</td>
+                      <td className="mono">{link.userId}</td>
+                      <td>
+                        <span className="chip chip--gray">
+                          {member ? (ROLE_LABEL[member.role] ?? member.role) : '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <form action={removeSlackUserLink} style={{ display: 'inline-block' }}>
+                          <input type="hidden" name="slackUserId" value={link.slackUserId} />
+                          <button type="submit" className="btn btn--ghost select--inline">
+                            Entknüpfen
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr>
+                  <td>
+                    <input
+                      name="slackUserId"
+                      placeholder="z. B. U0123456789"
+                      className="select--inline"
+                      form="slack-link-form"
+                      required
+                    />
+                  </td>
+                  <td colSpan={2}>
+                    <form id="slack-link-form" action={saveSlackUserLink} />
+                    <select name="userId" className="select--inline" form="slack-link-form">
+                      {memberships.map((m) => (
+                        <option key={m.id} value={m.userId}>
+                          {m.userId} ({m.role})
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <button
+                      type="submit"
+                      className="btn btn--primary select--inline"
+                      form="slack-link-form"
+                    >
+                      Verknüpfen
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </>
       ) : null}
     </>
   );

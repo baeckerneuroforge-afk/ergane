@@ -23,6 +23,7 @@
     "demo:ingest": "tsx scripts/demo-ingest.ts",
     "demo:skill": "tsx scripts/demo-skill.ts",
     "demo:policies": "tsx scripts/demo-policies.ts",
+    "demo:slack": "tsx scripts/demo-slack.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

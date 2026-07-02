@@ -30,6 +30,8 @@ chat that answers with sources** — see
 - [Skill engine: Guardrail → Freigabe → Audit (Phase 3)](#skill-engine-guardrail--freigabe--audit-phase-3)
 - [Governance-Policies (Phase 4)](#governance-policies-phase-4)
 - [Settings-Oberfläche (Admin-Governance-UI)](#settings-oberfläche-admin-governance-ui)
+- [Slack als zweiter Eingang (Phase 6)](#slack-als-zweiter-eingang-phase-6)
+  - [Slack lokal testen](#slack-lokal-testen)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -641,6 +643,132 @@ Audit, No-op ohne Audit) ist Teil des CI-Gates.
 
 ---
 
+## Slack als zweiter Eingang (Phase 6)
+
+Slack ist der erste **externe** Eingang: Fragen stellen, Skills anstoßen und
+Freigaben erteilen — alles über die **bestehenden** Funktionen
+(`answerQuestion`, `startRun`, `approve`, `reject`). Der Slack-Layer
+(`src/lib/slack/`) ist ein dünner Adapter ohne eigene Business-Logik.
+
+Weil Slack **ohne Clerk-Session** hereinkommt, gilt für jede Anfrage dieselbe
+harte Reihenfolge, fail-closed an jeder Stufe:
+
+1. **Signatur** — jede Anfrage wird gegen `SLACK_SIGNING_SECRET` verifiziert
+   (HMAC über den rohen Body, `X-Slack-Signature` +
+   `X-Slack-Request-Timestamp`, ±5-Minuten-Replay-Fenster,
+   Konstantzeit-Vergleich). Ungültig ⇒ **401**, es wird nichts geparst und
+   nichts verarbeitet (`src/lib/slack/verify.ts`).
+2. **Team → Org** — der Slack-Workspace (`team_id`) wird über
+   `slack_installations` auf **genau eine** `org_id` aufgelöst (globaler
+   Unique-Index auf `slack_team_id`: ein Team kann strukturell nie zwei Orgs
+   gehören). Kein Mapping ⇒ **403**. Ab hier läuft jede Aktion durch
+   `withTenant(orgId)` — die RLS-Mandantentrennung gilt für Slack exakt wie
+   für die UI.
+3. **User → Rolle** — der Slack-User wird über `slack_user_links` auf eine
+   Membership dieser Org gemappt (die Rolle wird **live** gelesen, nie auf dem
+   Link gecacht; der zusammengesetzte FK `(org_id, user_id)` →
+   `memberships` macht Links auf fremde Memberships strukturell unmöglich).
+   Kein Link ⇒ nur Lese-Verhalten auf `open`-Wissen; Skills starten oder
+   freigeben ist unmöglich.
+4. **Handeln** über die bestehenden Funktionen; das Freigabe-Rollen-Gate
+   (`required_role`) erzwingt weiterhin die Engine (`decide()`), nicht der
+   Adapter.
+5. **Audit** — zusätzlich zu den Einträgen der Engine schreibt der Adapter
+   jede Slack-Aktion als `slack.*` (`slack.question_answered`,
+   `slack.skill_started`, `slack.approval_approved/rejected/denied`) mit
+   `detail.via = "slack"` und `actor_id = "slack:<UserId>"`.
+
+**Bootstrap-Ausnahme in RLS:** die Auflösung Team → Org ist die EINZIGE
+Abfrage ohne Tenant-Kontext — der Tenant ist ja ihr Ergebnis. Migration 0006
+löst das mit einer zusätzlichen **SELECT-only-Policy** auf
+`slack_installations`: `resolveSlackTeam()` bindet die Team-ID
+transaktionslokal in `app.slack_team_lookup` (dieselbe `set_config`-Mechanik
+wie `withTenant`) und sieht damit exakt die Zeilen dieses einen Teams. Ohne
+GUC matcht die Policy nichts — nackte Queries liefern weiter 0 Zeilen.
+Schreibzugriffe deckt die Lookup-Policy nicht ab.
+
+**Secrets:** `SLACK_SIGNING_SECRET` und `SLACK_BOT_TOKEN` leben nur in `.env`.
+`slack_installations.bot_token_ref` speichert einen **Verweis**
+(`env:SLACK_BOT_TOKEN`), nie das Token — es gibt noch keinen Vault in diesem
+Stack; kommt einer, ändert sich nur das Ref-Format, nicht die Spalte
+(`createSlackInstallation` weist Werte ab, die wie echte `xox…`-Token
+aussehen).
+
+### Die drei Endpoints
+
+Alle drei sind **öffentliche** Routen (in `src/middleware.ts` von der
+Clerk-Pflicht ausgenommen), aber signatur-authentifiziert:
+
+| Route | Zweck |
+| --- | --- |
+| `POST /api/slack/events` | Events API: `url_verification`-Challenge, `app_mention` + DM ⇒ Frage → `answerQuestion` → Antwort mit `Quellen:`-Zeile in den Thread (via `chat.postMessage`) |
+| `POST /api/slack/commands` | Slash-Command `/ergane`: `frage <text>` und `skill <key> {json}`; `awaiting_approval` ⇒ Block-Kit-Nachricht mit **Freigeben/Ablehnen**-Buttons |
+| `POST /api/slack/interactions` | Button-Klicks: `approve()`/`reject()` mit der gemappten Membership als `decided_by`; unzureichende Rolle/kein Link ⇒ ephemere Fehlermeldung, keine Aktion |
+
+Zur 3-Sekunden-Regel: Commands und Interactions antworten synchron im
+200-Body (schnelle Pfade); die Antwort auf Mentions geht per
+`chat.postMessage` in den Thread. Der MVP berechnet sie **vor** dem Ack —
+mit echten Providern gehört die Arbeit hinter das Ack (`waitUntil`/Queue),
+der Handler-Schnitt (reine `Request → Response`-Funktionen) ist dafür
+vorbereitet. Skill-Runs mit JSON-Argumenten: eine ins JSON geschmuggelte
+`"rolle"` wird serverseitig mit der verifizierten Link-Rolle überschrieben.
+
+### Verwaltung (Settings → Slack, admin-only)
+
+Der Tab zeigt den Verbindungsstatus und erlaubt das manuelle Anlegen des
+Team-Mappings sowie das Verknüpfen/Entknüpfen von Slack-Usern mit
+Memberships (`src/lib/slack/admin.ts`: Admin-Gate + Audit wie bei den
+Policies). **MVP-Entscheidung:** kein OAuth-Install-Flow — die Team-ID wird
+von einem Admin eingetragen; OAuth ersetzt später nur
+`createSlackInstallation`, Tabellen und alles danach bleiben unverändert.
+
+### Slack lokal testen
+
+Ohne Slack-Account: **`pnpm demo:slack`** baut valide signierte Requests mit
+einem Demo-Secret, ruft die drei Handler direkt auf und fängt ausgehende
+Nachrichten ab. Gezeigt werden: 401/403-Gates, Frage → Antwort mit Quelle,
+Skill → `awaiting_approval` mit Buttons, Klick durch unverlinkt/member
+(abgewiesen) und lead (Freigabe → completed) — inklusive Audit-Kette.
+
+Mit echtem Slack-Workspace:
+
+1. **Slack-App anlegen** ([api.slack.com/apps](https://api.slack.com/apps) →
+   „Create New App" → From scratch, Workspace wählen).
+2. **Secrets nach `.env`:** *Basic Information → Signing Secret* ⇒
+   `SLACK_SIGNING_SECRET`; nach dem Install *OAuth & Permissions → Bot User
+   OAuth Token* ⇒ `SLACK_BOT_TOKEN`.
+3. **Scopes** (*OAuth & Permissions → Bot Token Scopes*):
+   `app_mentions:read`, `chat:write`, `commands` — für DM-Fragen zusätzlich
+   `im:history` (+ Event `message.im`).
+4. **Tunnel:** `pnpm dev` (Port 3000) und `ngrok http 3000` — die
+   `https://…ngrok…`-URL ist die Basis für alle drei Request-URLs.
+5. **Request-URLs eintragen:**
+   - *Event Subscriptions* → Enable, Request URL
+     `https://<ngrok>/api/slack/events` (die `url_verification`-Challenge
+     beantwortet der Handler automatisch), Bot Events: `app_mention`
+     (+ `message.im` für DMs).
+   - *Interactivity & Shortcuts* → Enable, Request URL
+     `https://<ngrok>/api/slack/interactions`.
+   - *Slash Commands* → Create: Command `/ergane`, Request URL
+     `https://<ngrok>/api/slack/commands`, Usage-Hint
+     `frage <text> | skill <key> {json}`.
+6. **App installieren** (*Install App*), Bot in einen Kanal einladen.
+7. **Mappen:** Team-ID (`T…`, z. B. aus der Workspace-URL oder dem
+   Event-Payload) unter *Einstellungen → Slack* mit der Org verbinden;
+   Slack-User-IDs (`U…`, Slack-Profil → „Copy member ID") mit Memberships
+   verknüpfen. Nicht gemappte Teams/Nutzer werden abgewiesen bzw. sehen nur
+   `open`-Wissen.
+8. **Ausprobieren:** `@ergane <Frage>` im Kanal, `/ergane frage <Frage>`,
+   `/ergane skill beleg_kontieren {"beschreibung":"Lizenz","betragEur":1240}`
+   → Freigabe-Buttons im Kanal.
+
+Tests: `tests/slack.test.ts` (Signatur-Gate inkl. Replay-Fenster, Team-Gate,
+Cross-Tenant-Beweis Team A ↛ Org B, Disclosure via Slack, unverlinkt/member/
+lead an den Buttons, „via slack"-Audit, RLS ENABLE+FORCE auf beiden neuen
+Tabellen) ist Teil des CI-Gates.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -726,7 +854,8 @@ cross-tenant checks are designed to catch it.
 │  ├─ demo-rag.ts                      # pnpm demo:rag — full RAG pipeline without HTTP/login
 │  ├─ demo-ingest.ts                   # pnpm demo:ingest — PDF/DOCX/MD/TXT extraction → RAG answer from the PDF
 │  ├─ demo-skill.ts                    # pnpm demo:skill — guardrail → approval → audit end-to-end
-│  └─ demo-policies.ts                 # pnpm demo:policies — threshold, never-failsafe, disclosure, role gate
+│  ├─ demo-policies.ts                 # pnpm demo:policies — threshold, never-failsafe, disclosure, role gate
+│  └─ demo-slack.ts                    # pnpm demo:slack — signierte Slack-Requests gegen die drei Handler, ohne Slack-Account
 ├─ src/
 │  ├─ middleware.ts                    # Clerk: require user + active org
 │  ├─ lib/
@@ -740,8 +869,9 @@ cross-tenant checks are designed to catch it.
 │  │  ├─ ingest/                       # extraction layer: PDF/DOCX/MD/TXT → text + meta (fail-closed)
 │  │  ├─ rag/                          # chunking, ingestDocument, retrieve (disclosure filter), answerQuestion
 │  │  ├─ skills/                       # skill engine: types, engine (policy→guardrail→approval→audit), catalog/
-│  │  └─ policies/                     # governance: approval policies, visibility grants, membership roles (admin-only, audited)
-│  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat, settings (admin)
+│  │  ├─ policies/                     # governance: approval policies, visibility grants, membership roles (admin-only, audited)
+│  │  └─ slack/                        # Slack-Adapter: verify (Signatur), team (Team→Org, User→Rolle), handlers, client, admin
+│  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat, settings (admin) + /api/slack/*
 ├─ tests/
 │  ├─ isolation.test.ts                # THE canonical isolation gate
 │  ├─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
@@ -749,6 +879,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)
-│  └─ skill-catalog.test.ts            # catalog gate: read-only nie Freigabe + Disclosure, Angebot immer Freigabe, Rechnung-Schwelle
+│  ├─ skill-catalog.test.ts            # catalog gate: read-only nie Freigabe + Disclosure, Angebot immer Freigabe, Rechnung-Schwelle
+│  └─ slack.test.ts                    # Phase-6 gate: Signatur, Team→Org, User→Rolle, Disclosure via Slack, Buttons, RLS
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR
 ```
