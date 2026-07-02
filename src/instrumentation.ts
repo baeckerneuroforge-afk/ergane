@@ -21,9 +21,10 @@ export async function register(): Promise<void> {
     }
   });
 
-  // Error-tracker attachment point (Phase 12): when a tracker is introduced,
-  // wire it HERE — e.g. with Sentry:
-  //   const { setErrorReporter } = await import('./lib/log');
-  //   setErrorReporter((err) => Sentry.captureException(err));
-  // Until then, logError() emits structured JSON lines only.
+  // Error reporting (Phase 16): vendor-neutral webhook sink — active as soon
+  // as ERROR_WEBHOOK_URL is set; without it, logError() stays log-only.
+  // For a full Sentry SDK integration replace this with Sentry.init + a
+  // setErrorReporter wiring (see src/lib/error-reporter.ts header).
+  const { initErrorReporterFromEnv } = await import('./lib/error-reporter');
+  initErrorReporterFromEnv();
 }

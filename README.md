@@ -997,8 +997,25 @@ das strikt in `withTenant` läuft: kein Filter kann den Tenant-Scope weiten.
 
 **Security-Header** (`next.config.mjs`): `X-Content-Type-Options`,
 `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` auf jeder
-Antwort. Bewusst noch keine CSP: Nexts Inline-Runtime braucht Nonces/Hashes —
-lieber später korrekt per Middleware als jetzt eine laxe.
+Antwort.
+
+**CSP mit Nonces (Phase 16, `src/lib/csp.ts` + Middleware):** jede
+Seiten-Antwort bekommt eine Content-Security-Policy mit frischem
+Per-Request-Nonce (`strict-dynamic`; Clerk-Hosts freigegeben; `frame-ancestors
+'none'`). Zweistufiger Rollout: Default ist **Report-Only** (beobachten, nichts
+brechen) — nach einem beobachteten Deploy `CSP_ENFORCE=true` setzen. API-Routen
+bekommen keine CSP (kein HTML).
+
+**Fehler-Sink (Phase 16, `src/lib/error-reporter.ts`):** mit
+`ERROR_WEBHOOK_URL` wird jede `logError()`-Meldung (maskiert, fire-and-forget,
+nie in den App-Pfad werfend) als JSON an einen Webhook gePOSTet —
+vendor-neutral (Slack/Discord/Relay). Der Sentry-SDK-Anschluss ist im
+Datei-Header dokumentiert; der `setErrorReporter()`-Vertrag bleibt identisch.
+
+**WAF-/Plattform-Rate-Rules (Checkliste, nicht lokal testbar):** in Vercel →
+Firewall Custom Rules für `/api/slack/*` und `/api/clerk/*` mit Rate-Limit
+(z. B. 120/min pro IP) anlegen — der In-App-Limiter bleibt der Backstop pro
+Instanz.
 
 ### Deployment (Vercel-Pfad)
 
@@ -1169,6 +1186,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
 │  ├─ policy.test.ts                   # Phase-4 gate: approval policies, disclosure, role gates, fail-closed
 │  ├─ gdpr-scrub.test.ts              # Phase-14 gate: Detail-Scrubbing exakt/tenant-gebunden, Trigger-Regression
+│  ├─ hardening.test.ts               # Phase-16 gate: CSP-Nonces/Enforce-Schalter, Fehler-Sink maskiert
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ ops.test.ts                     # Phase-12 gate: Logger-Maskierung, queryAuditLog tenant-gebunden
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)

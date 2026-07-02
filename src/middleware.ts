@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { buildCsp, cspHeaderName, generateCspNonce } from '@/lib/csp';
 
 // Public routes need no session. Everything else requires a signed-in user AND
 // an active organization. This is the first line of the tenant guard: a request
@@ -18,8 +19,27 @@ const isPublicRoute = createRouteMatcher([
 ]);
 const isOrgSelectRoute = createRouteMatcher(['/select-org(.*)']);
 
+/** CSP with a per-request nonce on every PAGE response (Phase 16). API routes
+ * skip it (no HTML). The nonce+CSP go onto the REQUEST headers so Next applies
+ * the nonce to its own inline scripts, and onto the RESPONSE for the browser.
+ * Report-Only by default; CSP_ENFORCE=true enforces (see src/lib/csp.ts). */
+function withCsp(req: NextRequest): NextResponse {
+  const nonce = generateCspNonce();
+  const csp = buildCsp(nonce);
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('content-security-policy', csp);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set(cspHeaderName(), csp);
+  return res;
+}
+
 export default clerkMiddleware(async (auth, req) => {
-  if (isPublicRoute(req)) return;
+  const isApi = req.nextUrl.pathname.startsWith('/api/');
+
+  if (isPublicRoute(req)) {
+    return isApi ? undefined : withCsp(req);
+  }
 
   const { userId, orgId, redirectToSignIn } = await auth();
 
@@ -33,6 +53,8 @@ export default clerkMiddleware(async (auth, req) => {
   if (!orgId && !isOrgSelectRoute(req)) {
     return NextResponse.redirect(new URL('/select-org', req.url));
   }
+
+  return isApi ? undefined : withCsp(req);
 });
 
 export const config = {
