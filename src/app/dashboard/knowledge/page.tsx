@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { withTenant } from '@/lib/tenant';
 import { VisibilityBadge, formatDateTime } from '../ui';
-import { addDocument, changeVisibility } from './actions';
+import { addDocument, changeVisibility, removeDocument } from './actions';
 import { UploadDropzone } from './upload';
 
 export const dynamic = 'force-dynamic';
@@ -71,6 +71,7 @@ export default async function KnowledgePage() {
                 <th>Sichtbarkeit</th>
                 <th>Datum</th>
                 <th>Chunks</th>
+                {isAdmin ? <th /> : null}
               </tr>
             </thead>
             <tbody>
@@ -114,6 +115,20 @@ export default async function KnowledgePage() {
                     {formatDateTime(doc.createdAt)}
                   </td>
                   <td className="mono">{doc._count.chunks}</td>
+                  {isAdmin ? (
+                    <td>
+                      <form action={removeDocument} style={{ display: 'inline-block' }}>
+                        <input type="hidden" name="documentId" value={doc.id} />
+                        <button
+                          type="submit"
+                          className="btn btn--ghost select--inline"
+                          title="Dokument samt Chunks unwiderruflich löschen (auditiert)"
+                        >
+                          Löschen
+                        </button>
+                      </form>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

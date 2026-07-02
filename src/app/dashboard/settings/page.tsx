@@ -11,6 +11,8 @@ import { withTenant } from '@/lib/tenant';
 import { listSkills } from '@/lib/skills';
 import { VisibilityBadge, formatEuro } from '../ui';
 import {
+  eraseOrganization,
+  purgeChat,
   removeSlackUserLink,
   saveApprovalPolicy,
   saveMembershipRole,
@@ -26,6 +28,7 @@ const TABS = [
   { key: 'sichtbarkeit', label: 'Wissens-Sichtbarkeit' },
   { key: 'mitglieder', label: 'Mitglieder & Rollen' },
   { key: 'slack', label: 'Slack' },
+  { key: 'daten', label: 'Daten & Löschung' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -407,6 +410,68 @@ export default async function SettingsPage({
                 </tr>
               </tbody>
             </table>
+          </section>
+        </>
+      ) : null}
+
+      {tab === 'daten' ? (
+        <>
+          <section className="card">
+            <h2>Datenexport (Art. 20 DSGVO)</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Vollständiger Export aller Daten dieser Organisation als JSON (Dokumente, Chunks
+              ohne Embeddings, Chat, Runs, Policies, Slack-Mappings, Audit-Trail). Der Export
+              läuft durch <code>withTenant</code> — er kann strukturell nur die eigene
+              Organisation enthalten. Jeder Export wird auditiert.
+            </p>
+            <a className="btn btn--primary" href="/dashboard/settings/export" download>
+              Export herunterladen
+            </a>
+          </section>
+
+          <section className="card">
+            <h2>Chat-Aufbewahrung</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Löscht Chat-Nachrichten, die älter als die angegebene Anzahl Tage sind
+              (0 = alles). Auditiert mit Anzahl.
+            </p>
+            <form action={purgeChat}>
+              <input
+                name="olderThanDays"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={90}
+                className="select--inline"
+                style={{ width: '6rem' }}
+              />{' '}
+              <span className="row-meta">Tage aufbewahren</span>{' '}
+              <button type="submit" className="btn btn--ghost select--inline">
+                Ältere Nachrichten löschen
+              </button>
+            </form>
+          </section>
+
+          <section className="card" style={{ borderColor: '#c0392b' }}>
+            <h2>Organisation unwiderruflich löschen</h2>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Löscht diese Organisation vollständig — inklusive Wissensbasis, Runs, Slack-Mappings
+              und Audit-Trail (Tenant-Offboarding, Art. 17). <strong>Vorher exportieren!</strong>{' '}
+              Der Löschnachweis (Zeilenzahlen pro Tabelle) wird serverseitig protokolliert. Zur
+              Bestätigung den exakten Namen der Organisation eintippen.
+            </p>
+            <form action={eraseOrganization}>
+              <input
+                name="confirmName"
+                placeholder="Exakter Organisationsname"
+                className="select--inline"
+                style={{ width: '18rem' }}
+                required
+              />{' '}
+              <button type="submit" className="btn btn--ghost select--inline" style={{ color: '#c0392b' }}>
+                Organisation löschen
+              </button>
+            </form>
           </section>
         </>
       ) : null}

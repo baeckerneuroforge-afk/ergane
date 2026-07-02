@@ -33,6 +33,7 @@ chat that answers with sources** — see
 - [Slack als zweiter Eingang (Phase 6)](#slack-als-zweiter-eingang-phase-6)
   - [Slack: ack-then-work & Idempotenz](#slack-ack-then-work--idempotenz)
   - [Slack lokal testen](#slack-lokal-testen)
+- [Lebenszyklus & DSGVO (Phase 7)](#lebenszyklus--dsgvo-phase-7)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
 - [Project layout](#project-layout)
@@ -819,6 +820,44 @@ Tabellen) ist Teil des CI-Gates.
 
 ---
 
+## Lebenszyklus & DSGVO (Phase 7)
+
+„GDPR-native" braucht Löschpfade. Phase 7 liefert sie (`src/lib/lifecycle/`,
+Migration 0008) — ohne den Boden aufzuweichen: alles läuft in `withTenant`
+(fremde IDs sind „not found", Löschen ohne Kontext trifft 0 Zeilen), alles ist
+admin-gated und auditiert.
+
+| Operation | Funktion | Absicherung |
+| --- | --- | --- |
+| Dokument löschen (Chunks kaskadieren) | `deleteDocument()` | Admin-Gate, Audit `document.deleted`; danach ehrliche Kein-Wissen-Antwort |
+| Chat-Retention | `purgeChatHistory(olderThanDays)` | Admin-Gate, Audit `chat.purged` mit Anzahl |
+| Vollexport (Art. 20) | `exportOrgData()` → Download unter Einstellungen → „Daten & Löschung" | liest nur durch `withTenant` — kann strukturell nur den eigenen Tenant enthalten; Audit `org.exported` |
+| Person aus dem Audit tilgen (Art. 17) | `pseudonymizeAuditActor(old, new)` | läuft NUR über die SECURITY-DEFINER-Funktion aus 0008 (s. u.); der Marker-Eintrag enthält die alte Kennung nicht — auch nicht als Autor |
+| Tenant-Offboarding | `deleteOrganization(confirmName)` | Name muss exakt getippt werden; Löschnachweis (Zeilenzahlen) wird ZURÜCKGEGEBEN (kann nicht in der gelöschten DB liegen) |
+
+**Audit vs. Art. 17 — die Entscheidung:** Der Audit-Trail bleibt append-only.
+Es gibt genau zwei eng vergitterte Ausnahmen, beide nur über
+SECURITY-DEFINER-Funktionen erreichbar (`app_user` hat weiterhin KEIN
+UPDATE/DELETE auf `audit_log` und KEIN DELETE auf `organizations`):
+
+1. `pseudonymize_audit_actor(old, new)` — erlaubt dem Trigger ein UPDATE, das
+   AUSSCHLIESSLICH `actor_id` ändert, nur solange das transaktionslokale GUC
+   `app.audit_pseudonymize` gesetzt ist, nur im Tenant des aufrufenden
+   `withTenant`-Kontexts. Die Audit-STRUKTUR (was, wann) bleibt erhalten.
+2. `delete_organization(org)` — erlaubt dem Trigger den DELETE der
+   Audit-Zeilen nur während der Organisations-Kaskade (GUC
+   `app.audit_erasure`), und nur wenn `org` dem aktuellen Tenant-Kontext
+   entspricht. Nötig, weil der Append-only-Trigger sonst auch die
+   FK-Kaskade `organizations → audit_log` blockiert.
+
+Bekannte, dokumentierte Grenze: `audit_log.detail`-JSON kann Kennungen tragen
+(z. B. `slackUserId`); das Scrubbing von detail-Payloads ist ein Folgeschritt.
+
+Demo: **`pnpm demo:lifecycle`** (Anlegen → Export → Löschen → Pseudonymisieren
+→ Offboarding mit Nachweis). Tests: `tests/lifecycle.test.ts`.
+
+---
+
 ## ✅ Checklist: adding a new tenant table (the most important section)
 
 Follow this **every time** so new tables are tenant-safe by construction. Do it
@@ -930,6 +969,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)
 │  ├─ skill-catalog.test.ts            # catalog gate: read-only nie Freigabe + Disclosure, Angebot immer Freigabe, Rechnung-Schwelle
+│  ├─ lifecycle.test.ts               # Phase-7 gate: Löschpfade tenant-gebunden, Audit-Ausnahmen nur über die Gates
 │  ├─ slack.test.ts                    # Phase-6 gate: Signatur, Team→Org, User→Rolle, Disclosure via Slack, Buttons, RLS
 │  └─ slack-ack.test.ts                # Phase-6b gate: Ack-vor-Arbeit, Gates vor Ack, Idempotenz pro Tenant, deferWork-Fehlerpfade
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR

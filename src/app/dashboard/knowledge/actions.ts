@@ -6,6 +6,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { setDocumentVisibility } from '@/lib/policies';
 import { ExtractionError, MAX_FILE_BYTES, extractText } from '@/lib/ingest/extract';
+import { deleteDocument } from '@/lib/lifecycle';
 import { ingestDocument } from '@/lib/rag';
 
 const MAX_UPLOAD_BYTES = 1_000_000; // 1 MB of plain text is plenty for now.
@@ -122,6 +123,22 @@ export async function ingestUpload(formData: FormData): Promise<UploadFileResult
     if (!(err instanceof ExtractionError)) console.error('ingestUpload failed:', err);
     return { fileName, ok: false, error: message };
   }
+}
+
+/**
+ * Delete a document (chunks cascade). Admin gate + audit live in the lifecycle
+ * function; this action parses the form and resolves the tenant/membership.
+ */
+export async function removeDocument(formData: FormData) {
+  const documentId = String(formData.get('documentId') ?? '').trim();
+  if (!documentId) throw new Error('documentId ist erforderlich.');
+
+  const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
+  // Mirror the membership first — deleteDocument's admin gate reads it.
+  await ensureOrgAndMembership({ clerkOrgId, name: orgSlug ?? clerkOrgId, userId, role });
+  await deleteDocument({ orgId, actorUserId: userId, documentId });
+
+  revalidatePath('/dashboard/knowledge');
 }
 
 /**

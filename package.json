@@ -24,6 +24,7 @@
     "demo:skill": "tsx scripts/demo-skill.ts",
     "demo:policies": "tsx scripts/demo-policies.ts",
     "demo:slack": "tsx scripts/demo-slack.ts",
+    "demo:lifecycle": "tsx scripts/demo-lifecycle.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

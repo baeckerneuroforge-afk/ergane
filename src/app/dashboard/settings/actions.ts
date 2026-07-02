@@ -11,6 +11,7 @@ import { ensureOrgAndMembership } from '@/lib/org';
 import { setApprovalPolicy, setMembershipRole, setVisibilityGrant } from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
+import { deleteOrganization, purgeChatHistory } from '@/lib/lifecycle';
 
 const MODES: ApprovalMode[] = ['always', 'threshold', 'never'];
 const APPROVER_ROLES: Role[] = ['lead', 'admin'];
@@ -130,4 +131,35 @@ export async function removeSlackUserLink(formData: FormData) {
   await unlinkSlackUser({ orgId, actorUserId: userId, slackUserId });
 
   revalidatePath('/dashboard/settings');
+}
+
+// -----------------------------------------------------------------------------
+// Lebenszyklus & Löschung (Admin-Gate + Audit in src/lib/lifecycle/)
+// -----------------------------------------------------------------------------
+
+export async function purgeChat(formData: FormData) {
+  const olderThanDays = Number.parseInt(String(formData.get('olderThanDays') ?? ''), 10);
+  if (!Number.isFinite(olderThanDays) || olderThanDays < 0) {
+    throw new Error('Aufbewahrung (Tage) muss eine Zahl ≥ 0 sein.');
+  }
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await purgeChatHistory({ orgId, actorUserId: userId, olderThanDays });
+
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/chat');
+}
+
+export async function eraseOrganization(formData: FormData) {
+  const confirmName = String(formData.get('confirmName') ?? '').trim();
+  if (!confirmName) throw new Error('Bestätigung (Org-Name) ist erforderlich.');
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  const proof = await deleteOrganization({ orgId, actorUserId: userId, confirmName });
+
+  // The tenant no longer exists — log the proof server-side (the caller should
+  // have exported first; the UI says so) and leave the dashboard.
+  console.info('[lifecycle] organization erased:', JSON.stringify(proof));
+  const { redirect } = await import('next/navigation');
+  redirect('/select-org');
 }
