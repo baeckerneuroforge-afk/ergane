@@ -13,6 +13,7 @@ import { VisibilityBadge, formatEuro } from '../ui';
 import {
   eraseOrganization,
   purgeChat,
+  saveChatRetention,
   removeSlackUserLink,
   saveApprovalPolicy,
   saveMembershipRole,
@@ -67,7 +68,7 @@ export default async function SettingsPage({
   const tab: TabKey = TABS.some((t) => t.key === params.tab) ? (params.tab as TabKey) : 'freigaben';
 
   const skills = listSkills();
-  const { policies, grants, documents, memberships, slackInstallations, slackLinks } =
+  const { policies, grants, documents, memberships, slackInstallations, slackLinks, orgSettings } =
     await withTenant(orgId, async (tx) => ({
       policies: await tx.approvalPolicy.findMany(),
       grants: await tx.visibilityGrant.findMany(),
@@ -75,6 +76,7 @@ export default async function SettingsPage({
       memberships: await tx.membership.findMany({ orderBy: { createdAt: 'asc' } }),
       slackInstallations: await tx.slackInstallation.findMany({ orderBy: { createdAt: 'asc' } }),
       slackLinks: await tx.slackUserLink.findMany({ orderBy: { createdAt: 'asc' } }),
+      orgSettings: await tx.orgSettings.findUnique({ where: { orgId } }),
     }));
 
   const granted = new Set(grants.map((g) => `${g.level}:${g.role}`));
@@ -436,8 +438,29 @@ export default async function SettingsPage({
           <section className="card">
             <h2>Chat-Aufbewahrung</h2>
             <p className="muted" style={{ marginTop: 0 }}>
-              Löscht Chat-Nachrichten, die älter als die angegebene Anzahl Tage sind
-              (0 = alles). Auditiert mit Anzahl.
+              <strong>Automatisch:</strong> Nachrichten älter als N Tage werden nach
+              Chat-Aktivität automatisch gelöscht (leer = unbegrenzt aufbewahren).
+              Jede automatische Löschung wird auditiert.
+            </p>
+            <form action={saveChatRetention}>
+              <input
+                name="retentionDays"
+                type="number"
+                min="1"
+                step="1"
+                defaultValue={orgSettings?.chatRetentionDays ?? ''}
+                placeholder="unbegrenzt"
+                className="select--inline"
+                style={{ width: '7rem' }}
+              />{' '}
+              <span className="row-meta">Tage aufbewahren (automatisch)</span>{' '}
+              <button type="submit" className="btn btn--primary select--inline">
+                Speichern
+              </button>
+            </form>
+            <p className="muted" style={{ marginTop: '0.8rem' }}>
+              <strong>Einmalig:</strong> Löscht Chat-Nachrichten, die älter als die
+              angegebene Anzahl Tage sind (0 = alles). Auditiert mit Anzahl.
             </p>
             <form action={purgeChat}>
               <input

@@ -35,6 +35,7 @@
 // Slack needs the challenge value in the response body, there is no work to
 // defer.
 import { logAudit } from '../audit';
+import { enforceChatRetention } from '../lifecycle';
 import { answerQuestion, loadChatHistory } from '../rag';
 import { approve, getSkill, reject, startRun, type SkillJson } from '../skills';
 import { withTenant } from '../tenant';
@@ -115,13 +116,15 @@ async function requireTeamOrg(
 }
 
 /** Post-claim housekeeping, deferred and best-effort: drop idempotency claims
- * older than 24 h for this tenant (no cron in this stack — see README). */
+ * older than 24 h AND enforce the tenant's chat retention (org_settings) —
+ * the no-cron pattern (no failure ever reaches the user; errors are logged). */
 function deferClaimCleanup(orgId: string): void {
   deferWork(
     async () => {
       await cleanupProcessedSlackEvents(orgId);
+      await enforceChatRetention(orgId);
     },
-    { label: 'idempotency:cleanup' },
+    { label: 'housekeeping' },
   );
 }
 

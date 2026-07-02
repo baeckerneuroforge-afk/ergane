@@ -114,6 +114,7 @@ model Organization {
   slackInstallations SlackInstallation[]
   slackUserLinks     SlackUserLink[]
   slackProcessedEvents SlackProcessedEvent[]
+  settings             OrgSettings?
 
   @@map("organizations")
 }
@@ -153,6 +154,20 @@ model SlackUserLink {
   @@unique([orgId, slackUserId])
   @@index([orgId])
   @@map("slack_user_links")
+}
+
+/// Per-tenant settings (one row per org; org_id IS the PK). RLS ENABLE+FORCE.
+/// chat_retention_days: NULL = keep forever; N = purge older messages
+/// opportunistically after chat activity (enforceChatRetention, no cron).
+model OrgSettings {
+  orgId             String   @id @map("org_id") @db.Uuid
+  chatRetentionDays Int?     @map("chat_retention_days")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_settings")
 }
 
 /// Idempotency claims for incoming Slack requests (tenant-scoped).

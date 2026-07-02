@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
+import { enforceChatRetention } from '@/lib/lifecycle';
 import { answerQuestion, loadChatHistory } from '@/lib/rag';
+import { deferWork } from '@/lib/slack/defer';
 
 /**
  * Ask the knowledge base a question (RAG).
@@ -21,6 +23,15 @@ export async function askQuestion(formData: FormData) {
   // Multi-turn: prior turns of THIS user only (per-actor history — see 0010).
   const history = await loadChatHistory(orgId, userId);
   await answerQuestion({ orgId, actorId: userId, question, role, history });
+
+  // Opportunistic retention enforcement (org_settings), deferred + best-effort
+  // — the same no-cron pattern as the Slack claim cleanup.
+  deferWork(
+    async () => {
+      await enforceChatRetention(orgId);
+    },
+    { label: 'chat:retention' },
+  );
 
   revalidatePath('/dashboard/chat');
 }

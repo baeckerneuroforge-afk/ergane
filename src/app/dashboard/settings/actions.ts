@@ -11,7 +11,7 @@ import { ensureOrgAndMembership } from '@/lib/org';
 import { setApprovalPolicy, setMembershipRole, setVisibilityGrant } from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
-import { deleteOrganization, purgeChatHistory } from '@/lib/lifecycle';
+import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
 
 const MODES: ApprovalMode[] = ['always', 'threshold', 'never'];
 const APPROVER_ROLES: Role[] = ['lead', 'admin'];
@@ -148,6 +148,19 @@ export async function purgeChat(formData: FormData) {
 
   revalidatePath('/dashboard/settings');
   revalidatePath('/dashboard/chat');
+}
+
+export async function saveChatRetention(formData: FormData) {
+  const raw = String(formData.get('retentionDays') ?? '').trim();
+  const retentionDays = raw === '' ? null : Number.parseInt(raw, 10);
+  if (retentionDays !== null && (!Number.isFinite(retentionDays) || retentionDays <= 0)) {
+    throw new Error('Aufbewahrung (Tage) muss leer oder eine positive Zahl sein.');
+  }
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await setChatRetention({ orgId, actorUserId: userId, retentionDays });
+
+  revalidatePath('/dashboard/settings');
 }
 
 export async function eraseOrganization(formData: FormData) {

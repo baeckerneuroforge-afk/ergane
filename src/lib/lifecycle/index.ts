@@ -113,6 +113,80 @@ export async function purgeChatHistory(input: PurgeChatHistoryInput): Promise<nu
 }
 
 // -----------------------------------------------------------------------------
+// Automatic chat retention (org_settings, Phase 15)
+// -----------------------------------------------------------------------------
+
+export interface SetChatRetentionInput {
+  orgId: string;
+  actorUserId: string;
+  /** Keep messages this many days; null = keep forever (off). */
+  retentionDays: number | null;
+}
+
+export async function setChatRetention(input: SetChatRetentionInput): Promise<void> {
+  if (
+    input.retentionDays !== null &&
+    (!Number.isInteger(input.retentionDays) || input.retentionDays <= 0)
+  ) {
+    throw new Error('setChatRetention: retentionDays must be a positive integer or null.');
+  }
+  await withTenant(input.orgId, async (tx) => {
+    await requireAdmin(tx, input.actorUserId);
+    const old = await tx.orgSettings.findUnique({ where: { orgId: input.orgId } });
+    await tx.orgSettings.upsert({
+      where: { orgId: input.orgId },
+      create: { orgId: input.orgId, chatRetentionDays: input.retentionDays },
+      update: { chatRetentionDays: input.retentionDays },
+    });
+    await logAudit(tx, {
+      orgId: input.orgId,
+      actorId: input.actorUserId,
+      actorType: 'human',
+      action: 'policy.changed',
+      target: 'org_settings:chat_retention_days',
+      detail: { old: old?.chatRetentionDays ?? null, new: input.retentionDays },
+    });
+  });
+}
+
+export async function getChatRetention(orgId: string): Promise<number | null> {
+  const settings = await withTenant(orgId, (tx) =>
+    tx.orgSettings.findUnique({ where: { orgId } }),
+  );
+  return settings?.chatRetentionDays ?? null;
+}
+
+/**
+ * Opportunistic retention enforcement — the SYSTEM path (no admin gate; only
+ * reachable from app code, runs deferred after chat activity, same no-cron
+ * pattern as the Slack claim cleanup). NULL retention ⇒ no-op. Audits only
+ * when something was actually deleted (no noise).
+ */
+export async function enforceChatRetention(orgId: string): Promise<number> {
+  return withTenant(orgId, async (tx) => {
+    const settings = await tx.orgSettings.findUnique({ where: { orgId } });
+    const days = settings?.chatRetentionDays;
+    if (!days) return 0;
+
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const { count } = await tx.chatMessage.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    if (count > 0) {
+      await logAudit(tx, {
+        orgId,
+        actorId: 'retention',
+        actorType: 'agent',
+        action: 'chat.purged',
+        target: `retention ${days}d`,
+        detail: { retentionDays: days, deletedCount: count, via: 'auto-retention' },
+      });
+    }
+    return count;
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Data export (Art. 20)
 // -----------------------------------------------------------------------------
 
@@ -148,6 +222,7 @@ export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<s
     const slackInstallations = await tx.slackInstallation.findMany();
     const slackUserLinks = await tx.slackUserLink.findMany();
     const slackProcessedEvents = await tx.slackProcessedEvent.findMany();
+    const orgSettings = await tx.orgSettings.findUnique({ where: { orgId: input.orgId } });
     const auditLog = await tx.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
 
     const data = {
@@ -155,7 +230,7 @@ export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<s
       orgId: input.orgId,
       organization, memberships, knowledgeItems, documents, chunks, chatMessages,
       skillRuns, skillSteps, approvals, approvalPolicies, visibilityGrants,
-      slackInstallations, slackUserLinks, slackProcessedEvents, auditLog,
+      slackInstallations, slackUserLinks, slackProcessedEvents, orgSettings, auditLog,
     };
 
     await logAudit(tx, {

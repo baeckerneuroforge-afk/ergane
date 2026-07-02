@@ -835,7 +835,8 @@ admin-gated und auditiert.
 | Operation | Funktion | Absicherung |
 | --- | --- | --- |
 | Dokument löschen (Chunks kaskadieren) | `deleteDocument()` | Admin-Gate, Audit `document.deleted`; danach ehrliche Kein-Wissen-Antwort |
-| Chat-Retention | `purgeChatHistory(olderThanDays)` | Admin-Gate, Audit `chat.purged` mit Anzahl |
+| Chat-Retention (manuell) | `purgeChatHistory(olderThanDays)` | Admin-Gate, Audit `chat.purged` mit Anzahl |
+| Chat-Retention (automatisch, Phase 15) | `setChatRetention(days\|null)` + `enforceChatRetention()` — läuft deferred nach Chat-Aktivität (kein Cron), `org_settings` (Migration 0012, RLS+FORCE) | Admin-Gate für die Einstellung; automatische Löschungen auditiert als Agent `retention` |
 | Vollexport (Art. 20) | `exportOrgData()` → Download unter Einstellungen → „Daten & Löschung" | liest nur durch `withTenant` — kann strukturell nur den eigenen Tenant enthalten; Audit `org.exported` |
 | Person aus dem Audit tilgen (Art. 17) | `pseudonymizeAuditActor(old, new)` | läuft NUR über die SECURITY-DEFINER-Funktion aus 0008 (s. u.); der Marker-Eintrag enthält die alte Kennung nicht — auch nicht als Autor |
 | Tenant-Offboarding | `deleteOrganization(confirmName)` | Name muss exakt getippt werden; Löschnachweis (Zeilenzahlen) wird ZURÜCKGEGEBEN (kann nicht in der gelöschten DB liegen) |
@@ -1162,6 +1163,7 @@ cross-tenant checks are designed to catch it.
 ├─ tests/
 │  ├─ isolation.test.ts                # THE canonical isolation gate
 │  ├─ rag-isolation.test.ts            # Phase-2 gate: new tables + vector retrieval + RAG flow
+│  ├─ retention.test.ts               # Phase-15 gate: Auto-Retention tenant-gebunden, org_settings RLS
 │  ├─ rag-v2.test.ts                   # Phase-10 gate: Multi-Turn pro Actor (fail-closed), Re-Ingest
 │  ├─ skill-effects.test.ts            # Phase-11 gate: Effekt nur nach Freigabe, Fake/Prod-Factory, PDF-Writer
 │  ├─ skill-isolation.test.ts          # Phase-3 gate: skill tables + guardrail/approval semantics
