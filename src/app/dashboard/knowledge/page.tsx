@@ -1,21 +1,14 @@
 import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
-import { ensureOrgAndMembership } from '@/lib/org';
 import { withTenant } from '@/lib/tenant';
-import { addDocument } from './actions';
+import { VisibilityBadge, formatDateTime } from '../ui';
+import { addDocument, changeVisibility } from './actions';
 
-// Touches the session and tenant data → always dynamic.
 export const dynamic = 'force-dynamic';
 
 export default async function KnowledgePage() {
-  const { userId, clerkOrgId, orgId, orgSlug, role } = await requireTenant();
-
-  await ensureOrgAndMembership({
-    clerkOrgId,
-    name: orgSlug ?? clerkOrgId,
-    userId,
-    role,
-  });
+  const { orgId, role } = await requireTenant();
+  const isAdmin = role === 'admin' || role === 'owner';
 
   // Every tenant read goes through withTenant — RLS scopes this to `orgId`.
   const documents = await withTenant(orgId, (tx) =>
@@ -26,64 +19,90 @@ export default async function KnowledgePage() {
   );
 
   return (
-    <div style={{ display: 'grid', gap: '1.5rem' }}>
-      <section>
-        <h1>Knowledge base</h1>
-        <p className="muted">
-          Tenant <code>{orgSlug ?? clerkOrgId}</code>. Documents are chunked, embedded and stored
-          per organization — the database enforces the isolation.{' '}
-          <Link href="/dashboard/chat">Ask questions in the chat →</Link>
-        </p>
-      </section>
+    <>
+      <p className="page-intro">
+        Dokumente werden pro Organisation gechunkt, eingebettet und gespeichert — die Isolation
+        erzwingt die Datenbank. Fragen beantwortet der{' '}
+        <Link href="/dashboard/chat">Chat</Link> ausschließlich aus diesem Wissen.
+      </p>
 
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>Add document</h2>
+      <section className="card">
+        <h2>Dokument anlegen</h2>
         <form action={addDocument}>
-          <label htmlFor="title">Title</label>
-          <input id="title" name="title" placeholder="e.g. Vacation policy 2026" required />
+          <label htmlFor="title">Titel</label>
+          <input id="title" name="title" placeholder="z. B. Urlaubsrichtlinie 2026" required />
           <label htmlFor="text">Text</label>
-          <textarea id="text" name="text" rows={6} placeholder="Paste the knowledge here…" />
-          <label htmlFor="file">…or upload a .txt file (read server-side)</label>
+          <textarea id="text" name="text" rows={5} placeholder="Wissen hier einfügen…" />
+          <label htmlFor="file">…oder .txt-Datei hochladen (serverseitig gelesen)</label>
           <input id="file" name="file" type="file" accept=".txt,text/plain" />
-          <label htmlFor="visibility">Visibility</label>
+          <label htmlFor="visibility">Sichtbarkeit</label>
           <select id="visibility" name="visibility" defaultValue="open">
-            <option value="open">open — every role</option>
-            <option value="restricted">restricted — granted roles only</option>
-            <option value="confidential">confidential — granted roles only</option>
+            <option value="open">open — alle Rollen</option>
+            <option value="restricted">restricted — nur berechtigte Rollen</option>
+            <option value="confidential">confidential — nur berechtigte Rollen</option>
           </select>
-          <button type="submit">Ingest</button>
+          <button type="submit" className="btn btn--primary">
+            Ingestieren
+          </button>
         </form>
       </section>
 
-      <section>
-        <h2>Documents ({documents.length})</h2>
+      <section className="card card--table">
+        <h2 style={{ padding: '0.8rem 1.25rem 0' }}>Dokumente ({documents.length})</h2>
         {documents.length === 0 ? (
-          <p className="muted">No documents yet. Add the first one above.</p>
+          <p className="muted" style={{ padding: '0 1.25rem 0.8rem' }}>
+            Noch keine Dokumente. Lege oben das erste an.
+          </p>
         ) : (
-          <ul className="items">
-            {documents.map((doc) => (
-              <li key={doc.id}>
-                <strong>{doc.title}</strong>{' '}
-                <span
-                  className="muted"
-                  style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: '999px',
-                    padding: '0 0.5rem',
-                    fontSize: '0.75rem',
-                  }}
-                >
-                  {doc.visibility}
-                </span>
-                <div className="muted">
-                  {doc.source} · {doc._count.chunks} chunk{doc._count.chunks === 1 ? '' : 's'} ·{' '}
-                  {doc.createdAt.toISOString().slice(0, 10)}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Titel</th>
+                <th>Sichtbarkeit</th>
+                <th>Datum</th>
+                <th>Chunks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {documents.map((doc) => (
+                <tr key={doc.id}>
+                  <td>
+                    <strong>{doc.title}</strong>
+                    <div className="row-meta">{doc.source}</div>
+                  </td>
+                  <td>
+                    <VisibilityBadge visibility={doc.visibility} />
+                    {isAdmin ? (
+                      <form
+                        action={changeVisibility}
+                        style={{ display: 'inline-block', marginLeft: '0.5rem' }}
+                      >
+                        <input type="hidden" name="documentId" value={doc.id} />
+                        <select
+                          name="visibility"
+                          defaultValue={doc.visibility}
+                          className="select--inline"
+                        >
+                          <option value="open">open</option>
+                          <option value="restricted">restricted</option>
+                          <option value="confidential">confidential</option>
+                        </select>{' '}
+                        <button type="submit" className="btn btn--ghost select--inline">
+                          Ändern
+                        </button>
+                      </form>
+                    ) : null}
+                  </td>
+                  <td className="mono row-meta" style={{ whiteSpace: 'nowrap' }}>
+                    {formatDateTime(doc.createdAt)}
+                  </td>
+                  <td className="mono">{doc._count.chunks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </section>
-    </div>
+    </>
   );
 }

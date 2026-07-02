@@ -4,18 +4,18 @@ import { OrganizationList } from '@clerk/nextjs';
 // `hidePersonal` hides personal accounts so there is always a real tenant.
 export default function SelectOrgPage() {
   return (
-    <div>
-      <h1>Choose an organization</h1>
-      <p className="muted">
-        ergane is multi-tenant. Pick an organization to enter, or create a new one.
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '1rem' }}>
-        <OrganizationList
-          hidePersonal
-          afterSelectOrganizationUrl="/dashboard"
-          afterCreateOrganizationUrl="/dashboard"
-        />
+    <div className="auth-page">
+      <div>
+        <h1>Organisation wählen</h1>
+        <p className="muted">
+          ergane ist mandantenfähig. Wähle eine Organisation oder lege eine neue an.
+        </p>
       </div>
+      <OrganizationList
+        hidePersonal
+        afterSelectOrganizationUrl="/dashboard"
+        afterCreateOrganizationUrl="/dashboard"
+      />
     </div>
   );
 }

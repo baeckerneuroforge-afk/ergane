@@ -1,68 +1,84 @@
 import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
-import { ensureOrgAndMembership } from '@/lib/org';
+import { listSkills } from '@/lib/skills';
 import { withTenant } from '@/lib/tenant';
-import { createKnowledgeItem } from './actions';
+import { ActorChip, formatDateTime } from './ui';
 
-// Touches the session and tenant data → always dynamic.
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  const { userId, clerkOrgId, orgId, orgSlug, role } = await requireTenant();
+  const { orgId } = await requireTenant();
 
-  // Mirror the Clerk org + caller's membership into our DB (idempotent).
-  await ensureOrgAndMembership({
-    clerkOrgId,
-    name: orgSlug ?? clerkOrgId,
-    userId,
-    role,
-  });
-
-  // Every tenant read goes through withTenant — RLS scopes this to `orgId`.
-  const items = await withTenant(orgId, (tx) =>
-    tx.knowledgeItem.findMany({ orderBy: { createdAt: 'desc' } }),
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const { documentCount, runsLast7d, pendingApprovals, recentAudit } = await withTenant(
+    orgId,
+    async (tx) => ({
+      documentCount: await tx.document.count(),
+      runsLast7d: await tx.skillRun.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
+      recentAudit: await tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
+    }),
   );
+  const skillCount = listSkills().length;
+
+  const kpis = [
+    { label: 'Wissens-Einträge', value: documentCount, attention: false },
+    { label: 'Skills verfügbar', value: skillCount, attention: false },
+    { label: 'Ausführungen (7 Tage)', value: runsLast7d, attention: false },
+    { label: 'Wartende Freigaben', value: pendingApprovals, attention: pendingApprovals > 0 },
+  ];
 
   return (
-    <div style={{ display: 'grid', gap: '1.5rem' }}>
-      <section>
-        <h1>Knowledge items</h1>
-        <p className="muted">
-          Tenant <code>{orgSlug ?? clerkOrgId}</code> · you are <code>{role}</code>. Everything
-          below is scoped to this organization by the database, not by this page.
-        </p>
-        <p className="muted">
-          Phase 2: <Link href="/dashboard/knowledge">Knowledge base</Link> ·{' '}
-          <Link href="/dashboard/chat">Knowledge chat</Link>
-        </p>
-      </section>
+    <>
+      <div className="kpi-grid">
+        {kpis.map((kpi) => (
+          <div className="card" key={kpi.label}>
+            <div className="kpi-label">{kpi.label}</div>
+            <div className={`kpi-value${kpi.attention ? ' attention' : ''}`}>{kpi.value}</div>
+          </div>
+        ))}
+      </div>
 
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>New item</h2>
-        <form action={createKnowledgeItem}>
-          <label htmlFor="title">Title</label>
-          <input id="title" name="title" placeholder="e.g. Onboarding checklist" required />
-          <label htmlFor="body">Body</label>
-          <textarea id="body" name="body" rows={3} placeholder="Details…" />
-          <button type="submit">Create</button>
-        </form>
-      </section>
-
-      <section>
-        <h2>This organization&apos;s items ({items.length})</h2>
-        {items.length === 0 ? (
-          <p className="muted">No items yet. Create the first one above.</p>
+      <section className="card card--table">
+        <h2 style={{ padding: '0.8rem 1.25rem 0' }}>Letzte Aktivität</h2>
+        {recentAudit.length === 0 ? (
+          <p className="muted" style={{ padding: '0 1.25rem 0.8rem' }}>
+            Noch keine Einträge. Aktivität erscheint hier, sobald Wissen ingestiert oder ein
+            Skill ausgeführt wird.
+          </p>
         ) : (
-          <ul className="items">
-            {items.map((item) => (
-              <li key={item.id}>
-                <strong>{item.title}</strong>
-                {item.body ? <div className="muted">{item.body}</div> : null}
-              </li>
-            ))}
-          </ul>
+          <table className="table">
+            <tbody>
+              {recentAudit.map((entry) => (
+                <tr key={entry.id}>
+                  <td className="mono row-meta" style={{ whiteSpace: 'nowrap' }}>
+                    {formatDateTime(entry.createdAt)}
+                  </td>
+                  <td className="mono">{entry.action}</td>
+                  <td>
+                    <ActorChip actorType={entry.actorType} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </section>
-    </div>
+
+      <div className="quick-grid">
+        <Link className="card quick-card" href="/dashboard/skills">
+          <strong>Skills</strong>
+          <span className="quick-hint">Automatisierungen starten — Guardrails inklusive.</span>
+        </Link>
+        <Link className="card quick-card" href="/dashboard/knowledge">
+          <strong>Wissensbasis</strong>
+          <span className="quick-hint">Dokumente ingestieren und Sichtbarkeit steuern.</span>
+        </Link>
+        <Link className="card quick-card" href="/dashboard/chat">
+          <strong>Chat</strong>
+          <span className="quick-hint">Fragen ans geprüfte Wissen — Antworten mit Quellen.</span>
+        </Link>
+      </div>
+    </>
   );
 }

@@ -3,6 +3,8 @@
 import type { DocumentVisibility } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
+import { ensureOrgAndMembership } from '@/lib/org';
+import { setDocumentVisibility } from '@/lib/policies';
 import { ingestDocument } from '@/lib/rag';
 
 const MAX_UPLOAD_BYTES = 1_000_000; // 1 MB of plain text is plenty for now.
@@ -47,6 +49,26 @@ export async function addDocument(formData: FormData) {
 
   const { orgId, userId } = await requireTenant();
   await ingestDocument({ orgId, actorId: userId, title, source, text, visibility });
+
+  revalidatePath('/dashboard/knowledge');
+}
+
+/**
+ * Change a document's visibility via the EXISTING policy function — it holds
+ * the admin gate (getMemberRole + requireAdmin) and writes the audit entry.
+ */
+export async function changeVisibility(formData: FormData) {
+  const documentId = String(formData.get('documentId') ?? '').trim();
+  if (!documentId) throw new Error('documentId is required.');
+
+  const rawVisibility = String(formData.get('visibility') ?? '');
+  const visibility = VISIBILITIES.find((v) => v === rawVisibility);
+  if (!visibility) throw new Error('Invalid visibility.');
+
+  const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
+  // Mirror the membership first — setDocumentVisibility's admin gate reads it.
+  await ensureOrgAndMembership({ clerkOrgId, name: orgSlug ?? clerkOrgId, userId, role });
+  await setDocumentVisibility({ orgId, actorUserId: userId, documentId, visibility });
 
   revalidatePath('/dashboard/knowledge');
 }

@@ -1,18 +1,16 @@
 import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
-import { ensureOrgAndMembership } from '@/lib/org';
-import { SOURCES_MARKER } from '@/lib/rag';
+import { NO_KNOWLEDGE_ANSWER, SOURCES_MARKER } from '@/lib/rag';
 import { withTenant } from '@/lib/tenant';
 import { askQuestion } from './actions';
 
-// Touches the session and tenant data → always dynamic.
 export const dynamic = 'force-dynamic';
 
 /**
  * Split a persisted assistant message into answer text + source titles.
  * Canonical format (see src/lib/rag/answer.ts): the grounded answer ends with
- * one line `Quellen: <Titel1>, <Titel2>, …` — rendered here as a list, not as
- * part of the answer text (no double display).
+ * one line `Quellen: <Titel1>, <Titel2>, …` — rendered here as source chips,
+ * never as running text (no double display).
  */
 function splitSources(content: string): { text: string; sources: string[] } {
   const idx = content.lastIndexOf(`\n\n${SOURCES_MARKER} `);
@@ -28,14 +26,7 @@ function splitSources(content: string): { text: string; sources: string[] } {
 }
 
 export default async function ChatPage() {
-  const { userId, clerkOrgId, orgId, orgSlug, role } = await requireTenant();
-
-  await ensureOrgAndMembership({
-    clerkOrgId,
-    name: orgSlug ?? clerkOrgId,
-    userId,
-    role,
-  });
+  const { orgId } = await requireTenant();
 
   // Last 50 messages of THIS tenant — via withTenant, enforced by RLS.
   const messages = (
@@ -45,57 +36,62 @@ export default async function ChatPage() {
   ).reverse();
 
   return (
-    <div style={{ display: 'grid', gap: '1.5rem' }}>
-      <section>
-        <h1>Knowledge chat</h1>
-        <p className="muted">
-          Answers come only from this organization&apos;s{' '}
-          <Link href="/dashboard/knowledge">knowledge base</Link>, with sources. Without matching
-          knowledge the assistant honestly says so.
-        </p>
-      </section>
+    <div className="chat-page">
+      <p className="page-intro">
+        Antworten kommen ausschließlich aus der{' '}
+        <Link href="/dashboard/knowledge">Wissensbasis</Link> dieser Organisation — mit Quellen.
+        Ohne passendes Wissen sagt der Assistent das ehrlich.
+      </p>
 
-      <section className="panel" style={{ display: 'grid', gap: '0.75rem' }}>
+      <div className="chat-scroll">
         {messages.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            No messages yet. Ask the first question below.
-          </p>
+          <div className="empty">Noch keine Nachrichten. Stelle unten die erste Frage.</div>
         ) : (
           messages.map((msg) => {
-            const { text, sources } = msg.role === 'assistant'
-              ? splitSources(msg.content)
-              : { text: msg.content, sources: [] };
-            return (
-              <div key={msg.id}>
-                <div className="muted" style={{ fontSize: '0.8rem' }}>
-                  {msg.role === 'user' ? 'You' : 'Assistant'}
+            if (msg.role === 'user') {
+              return (
+                <div key={msg.id} className="bubble bubble--user">
+                  {msg.content}
                 </div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>
+              );
+            }
+            const { text, sources } = splitSources(msg.content);
+            const noKnowledge = text.trim() === NO_KNOWLEDGE_ANSWER;
+            return (
+              <div
+                key={msg.id}
+                className={`bubble bubble--assistant${noKnowledge ? ' bubble--empty' : ''}`}
+              >
+                {text}
                 {sources.length > 0 ? (
-                  <ul className="muted" style={{ fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+                  <div className="bubble-sources">
                     {sources.map((s) => (
-                      <li key={s}>Quelle: {s}</li>
+                      <span key={s} className="chip chip--indigo">
+                        {s}
+                      </span>
                     ))}
-                  </ul>
+                  </div>
                 ) : null}
               </div>
             );
           })
         )}
-      </section>
+      </div>
 
-      <section className="panel">
+      <div className="chat-input">
         <form action={askQuestion}>
-          <label htmlFor="question">Your question</label>
           <input
-            id="question"
             name="question"
-            placeholder="e.g. How many vacation days do we have?"
+            placeholder="z. B. Wie viele Urlaubstage haben wir?"
+            aria-label="Frage"
+            autoComplete="off"
             required
           />
-          <button type="submit">Ask</button>
+          <button type="submit" className="btn btn--primary">
+            Fragen
+          </button>
         </form>
-      </section>
+      </div>
     </div>
   );
 }

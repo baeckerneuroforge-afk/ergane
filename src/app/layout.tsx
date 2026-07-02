@@ -1,12 +1,10 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import {
-  ClerkProvider,
-  OrganizationSwitcher,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from '@clerk/nextjs';
+import { Inter, JetBrains_Mono } from 'next/font/google';
+import { ClerkProvider } from '@clerk/nextjs';
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
   title: 'ergane',
@@ -16,22 +14,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body>
-          <header>
-            <span className="brand">ergane</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <SignedIn>
-                <OrganizationSwitcher hidePersonal afterSelectOrganizationUrl="/dashboard" />
-                <UserButton />
-              </SignedIn>
-              <SignedOut>
-                <span className="muted">not signed in</span>
-              </SignedOut>
-            </span>
-          </header>
-          <main>{children}</main>
-        </body>
+      <html lang="de">
+        <body className={`${inter.variable} ${jetbrainsMono.variable}`}>{children}</body>
       </html>
     </ClerkProvider>
   );
