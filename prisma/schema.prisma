@@ -113,6 +113,7 @@ model Organization {
   visibilityGrants VisibilityGrant[]
   slackInstallations SlackInstallation[]
   slackUserLinks     SlackUserLink[]
+  slackProcessedEvents SlackProcessedEvent[]
 
   @@map("organizations")
 }
@@ -152,6 +153,24 @@ model SlackUserLink {
   @@unique([orgId, slackUserId])
   @@index([orgId])
   @@map("slack_user_links")
+}
+
+/// Idempotency claims for incoming Slack requests (tenant-scoped).
+/// RLS ENABLE + FORCE. The unique (org_id, event_key) makes claiming the same
+/// Slack event/trigger twice fail atomically — duplicate deliveries are acked
+/// with 200 but never processed a second time. Rows only matter for Slack's
+/// retry horizon; cleanupProcessedSlackEvents() removes entries older than 24 h.
+model SlackProcessedEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  eventKey  String   @map("event_key")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, eventKey])
+  @@index([orgId])
+  @@map("slack_processed_events")
 }
 
 /// Per-skill approval policy (tenant-scoped). RLS ENABLE + FORCE.

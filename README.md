@@ -31,6 +31,7 @@ chat that answers with sources** — see
 - [Governance-Policies (Phase 4)](#governance-policies-phase-4)
 - [Settings-Oberfläche (Admin-Governance-UI)](#settings-oberfläche-admin-governance-ui)
 - [Slack als zweiter Eingang (Phase 6)](#slack-als-zweiter-eingang-phase-6)
+  - [Slack: ack-then-work & Idempotenz](#slack-ack-then-work--idempotenz)
   - [Slack lokal testen](#slack-lokal-testen)
 - [✅ Checklist: adding a new tenant table](#-checklist-adding-a-new-tenant-table-the-most-important-section)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
@@ -705,13 +706,62 @@ Clerk-Pflicht ausgenommen), aber signatur-authentifiziert:
 | `POST /api/slack/commands` | Slash-Command `/ergane`: `frage <text>` und `skill <key> {json}`; `awaiting_approval` ⇒ Block-Kit-Nachricht mit **Freigeben/Ablehnen**-Buttons |
 | `POST /api/slack/interactions` | Button-Klicks: `approve()`/`reject()` mit der gemappten Membership als `decided_by`; unzureichende Rolle/kein Link ⇒ ephemere Fehlermeldung, keine Aktion |
 
-Zur 3-Sekunden-Regel: Commands und Interactions antworten synchron im
-200-Body (schnelle Pfade); die Antwort auf Mentions geht per
-`chat.postMessage` in den Thread. Der MVP berechnet sie **vor** dem Ack —
-mit echten Providern gehört die Arbeit hinter das Ack (`waitUntil`/Queue),
-der Handler-Schnitt (reine `Request → Response`-Funktionen) ist dafür
-vorbereitet. Skill-Runs mit JSON-Argumenten: eine ins JSON geschmuggelte
-`"rolle"` wird serverseitig mit der verifizierten Link-Rolle überschrieben.
+Skill-Runs mit JSON-Argumenten: eine ins JSON geschmuggelte `"rolle"` wird
+serverseitig mit der verifizierten Link-Rolle überschrieben.
+
+### Slack: ack-then-work & Idempotenz
+
+**Warum:** Slack verlangt ein 200 innerhalb von **3 Sekunden**, sonst
+re-delivert es denselben Request (bis zu 3×). Würde die Antwort (mit echten
+LLM-Providern potenziell mehrere Sekunden) vor dem Ack berechnet, bekäme man
+Doppelantworten und doppelt gestartete Runs.
+
+**Wie:** Alle drei Handler folgen dem Muster **ack-then-work** — mit einer
+wichtigen Einschränkung: die Sicherheits-Tore bleiben **vor** dem Ack.
+
+1. Signatur (ungültig ⇒ **401**) → Team→Org (kein Mapping ⇒ **403**) →
+   User→Rolle. Ein unsignierter/fremder Request bekommt nie ein vorschnelles
+   200.
+2. **Idempotenz-Claim** (`src/lib/slack/idempotency.ts`, Migration 0007):
+   vor jeder Arbeit wird die stabile Kennung des Requests — Events:
+   `event_id` (Fallback `team_id` + Event-ts), Commands/Interactions:
+   `trigger_id` — atomar in `slack_processed_events` eingefügt (RLS+FORCE
+   nach Checkliste, unique pro `org_id` + `event_key`). Schlägt der Insert
+   am Unique fehl ⇒ Duplikat-Delivery ⇒ stilles 200, keine zweite
+   Ausführung. Claims sind **pro Tenant** — derselbe Key in Org A und Org B
+   kollidiert nie. Aufräumen: `cleanupProcessedSlackEvents()` löscht
+   Einträge > 24 h (Korrektheit hängt nicht daran; aufrufbar aus jedem
+   Wartungspfad, bewusst kein Cron).
+3. **Sofortiges 200**: Events leer, Slash-Commands mit ephemerem
+   „… wird bearbeitet", Interactions `{ ok: true }`. Die
+   `url_verification`-Challenge bleibt synchron (der Challenge-Wert muss in
+   den Response-Body).
+4. **Arbeit danach** via `deferWork()` (`src/lib/slack/defer.ts`): die
+   nachgelagerte Arbeit (`answerQuestion`, `startRun`, `approve`/`reject`)
+   läuft in `withTenant(orgId)` mit derselben aufgelösten Org/Rolle und
+   liefert das Ergebnis per `chat.postMessage` nach. Fehler werden geloggt
+   **und** dem Slack-User als (ephemere) Fehlermeldung gemeldet — nie ein
+   unbehandelter Reject.
+
+**Plattform-Anschlusspunkt:** Der Node-Default von `deferWork()` ist
+fire-and-forget — korrekt überall, wo der Prozess weiterläuft (dev,
+self-hosted). Auf Serverless-Runtimes, die die Instanz direkt nach der
+Response einfrieren (Vercel Functions/Lambda), einmalig beim Start das
+Keep-alive der Plattform einhängen:
+
+```ts
+import { after } from 'next/server'; // oder waitUntil aus @vercel/functions
+import { setDeferKeepAlive } from '@/lib/slack';
+
+setDeferKeepAlive((pending) => after(() => pending));
+```
+
+Tests/Demo machen die Reihenfolge deterministisch sichtbar über
+`drainDeferredWork()`: `pnpm demo:slack` zeigt jedes „ACK HTTP 200" **vor**
+der zugehörigen nachgelieferten Nachricht und demonstriert, dass eine
+Re-Delivery mit derselben `trigger_id` keinen zweiten Run startet.
+Test-Gates: `tests/slack-ack.test.ts` (Ack-vor-Arbeit, Gates vor Ack,
+Idempotenz pro Tenant, deferWork-Fehlerpfade, synchrone Challenge).
 
 ### Verwaltung (Settings → Slack, admin-only)
 
@@ -870,7 +920,7 @@ cross-tenant checks are designed to catch it.
 │  │  ├─ rag/                          # chunking, ingestDocument, retrieve (disclosure filter), answerQuestion
 │  │  ├─ skills/                       # skill engine: types, engine (policy→guardrail→approval→audit), catalog/
 │  │  ├─ policies/                     # governance: approval policies, visibility grants, membership roles (admin-only, audited)
-│  │  └─ slack/                        # Slack-Adapter: verify (Signatur), team (Team→Org, User→Rolle), handlers, client, admin
+│  │  └─ slack/                        # Slack-Adapter: verify (Signatur), team (Team→Org, User→Rolle), handlers (ack-then-work), defer, idempotency, client, admin
 │  └─ app/                             # minimal UI: sign-in/up, select-org, dashboard, knowledge, chat, settings (admin) + /api/slack/*
 ├─ tests/
 │  ├─ isolation.test.ts                # THE canonical isolation gate
@@ -880,6 +930,7 @@ cross-tenant checks are designed to catch it.
 │  ├─ ingest.test.ts                   # Phase-5 gate: format extraction, fail-closed rejects, paragraph chunking
 │  ├─ settings.test.ts                 # settings gate: setMembershipRole (admin-only, tenant-scoped, last-admin guard, audit)
 │  ├─ skill-catalog.test.ts            # catalog gate: read-only nie Freigabe + Disclosure, Angebot immer Freigabe, Rechnung-Schwelle
-│  └─ slack.test.ts                    # Phase-6 gate: Signatur, Team→Org, User→Rolle, Disclosure via Slack, Buttons, RLS
+│  ├─ slack.test.ts                    # Phase-6 gate: Signatur, Team→Org, User→Rolle, Disclosure via Slack, Buttons, RLS
+│  └─ slack-ack.test.ts                # Phase-6b gate: Ack-vor-Arbeit, Gates vor Ack, Idempotenz pro Tenant, deferWork-Fehlerpfade
 └─ .github/workflows/ci.yml            # runs the gate on every push/PR
 ```

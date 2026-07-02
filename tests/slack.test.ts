@@ -34,6 +34,7 @@ import {
   handleSlackInteractions,
 } from '../src/lib/slack/handlers';
 import { setSlackPoster, type SlackOutgoingMessage } from '../src/lib/slack/client';
+import { drainDeferredWork } from '../src/lib/slack/defer';
 import { resolveSlackTeam } from '../src/lib/slack/team';
 
 const ORG_A = '99999999-9999-4999-8999-999999999999';
@@ -53,6 +54,7 @@ const ALL_TABLES = [
   'documents', 'chunks', 'chat_messages',
   'skill_runs', 'skill_steps', 'approvals',
   'approval_policies', 'visibility_grants',
+  'slack_processed_events',
   ...NEW_TABLES,
 ];
 
@@ -90,12 +92,22 @@ function mentionEvent(teamId: string, slackUserId: string, text: string): Reques
   );
 }
 
-function commandRequest(teamId: string, slackUserId: string, text: string): Request {
+/** Unique per call so parallel invocations in ONE test never collide on the
+ * idempotency claim; retry tests pass an explicit fixed triggerId instead. */
+let triggerCounter = 0;
+
+function commandRequest(
+  teamId: string,
+  slackUserId: string,
+  text: string,
+  triggerId?: string,
+): Request {
   const body = new URLSearchParams({
     command: '/ergane',
     team_id: teamId,
     user_id: slackUserId,
     channel_id: 'C_TEST',
+    trigger_id: triggerId ?? `trig_cmd_${++triggerCounter}`,
     text,
   }).toString();
   return signedRequest(body, { contentType: 'application/x-www-form-urlencoded' });
@@ -106,9 +118,11 @@ function interactionRequest(
   slackUserId: string,
   actionId: 'ergane_approve' | 'ergane_reject',
   runId: string,
+  triggerId?: string,
 ): Request {
   const payload = {
     type: 'block_actions',
+    trigger_id: triggerId ?? `trig_int_${++triggerCounter}`,
     team: { id: teamId },
     user: { id: slackUserId },
     channel: { id: 'C_TEST' },
@@ -174,16 +188,23 @@ async function seed() {
 }
 
 /** Start a guarded run via the slash command and return its runId (from the
- * approve button's value). Requires the 'always'/lead policy from seedPolicy(). */
+ * approve button's value). Ack-then-work: the immediate 200 is only the "in
+ * progress" note; the buttons message arrives via the poster after the
+ * deferred run paused — so this drains before reading it. Requires the
+ * 'always'/lead policy from seedPolicy(). */
 async function startGuardedRun(): Promise<string> {
   const res = await handleSlackCommands(
     commandRequest(TEAM_A, MEMBER.slackId, 'skill beleg_kontieren {"beschreibung":"Lizenz","betragEur":1240}'),
   );
   expect(res.status).toBe(200);
-  const body = (await res.json()) as { text: string; blocks?: Array<{ elements?: Array<{ action_id: string; value: string }> }> };
-  const buttons = body.blocks?.find((b) => Array.isArray(b.elements))?.elements ?? [];
+  await drainDeferredWork();
+  const withButtons = posted.find((m) => Array.isArray(m.blocks));
+  const buttons =
+    (withButtons?.blocks as Array<{ elements?: Array<{ action_id: string; value: string }> }>)
+      ?.find((b) => Array.isArray(b.elements))?.elements ?? [];
   const approveButton = buttons.find((b) => b.action_id === 'ergane_approve');
   expect(approveButton?.value).toBeTruthy();
+  posted = []; // the tests after this only care about messages caused by clicks
   return approveButton!.value;
 }
 
@@ -229,6 +250,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // A test that forgot to drain must not leak its deferred work into the next
+  // test's database state.
+  await drainDeferredWork();
   posted = [];
   setSlackPoster(async (msg) => {
     posted.push(msg);
@@ -317,6 +341,7 @@ describe('team → org mapping (gate 2 — no mapping ⇒ rejected)', () => {
       mentionEvent(TEAM_A, LEAD.slackId, 'Welche Kündigungsfrist gilt für Lieferverträge?'),
     );
     expect(res.status).toBe(200);
+    await drainDeferredWork();
     expect(posted).toHaveLength(1);
     expect(posted[0]!.text).toContain(NO_KNOWLEDGE_ANSWER);
     expect(posted[0]!.text).not.toContain('drei Monate');
@@ -344,6 +369,7 @@ describe('slack user → role (gate 3) and disclosure via Slack', () => {
       mentionEvent(TEAM_A, STRANGER_SLACK_ID, 'Wie viele Urlaubstage pro Kalenderjahr?'),
     );
     expect(res.status).toBe(200);
+    await drainDeferredWork();
     expect(posted[0]!.text).toContain('30 Urlaubstage');
     expect(posted[0]!.text).toContain(`${SOURCES_MARKER} Urlaubsrichtlinie`);
   });
@@ -353,6 +379,7 @@ describe('slack user → role (gate 3) and disclosure via Slack', () => {
       mentionEvent(TEAM_A, STRANGER_SLACK_ID, 'Wie hoch ist das Gehaltsband für Senior Engineers?'),
     );
     expect(res.status).toBe(200);
+    await drainDeferredWork();
     expect(posted[0]!.text).toContain(NO_KNOWLEDGE_ANSWER);
     expect(posted[0]!.text).not.toContain('95000');
   });
@@ -361,22 +388,27 @@ describe('slack user → role (gate 3) and disclosure via Slack', () => {
     const res = await handleSlackCommands(
       commandRequest(TEAM_A, MEMBER.slackId, 'frage Wie hoch ist das Gehaltsband für Senior Engineers?'),
     );
-    const body = (await res.json()) as { text: string };
-    expect(body.text).toContain(NO_KNOWLEDGE_ANSWER);
-    expect(body.text).not.toContain('95000');
+    expect(res.status).toBe(200);
+    await drainDeferredWork();
+    const answer = posted.find((m) => !m.ephemeralUserId);
+    expect(answer?.text).toContain(NO_KNOWLEDGE_ANSWER);
+    expect(answer?.text).not.toContain('95000');
   });
 
   it('a linked LEAD (grant for confidential) gets the confidential answer', async () => {
     const res = await handleSlackCommands(
       commandRequest(TEAM_A, LEAD.slackId, 'frage Wie hoch ist das Gehaltsband für Senior Engineers?'),
     );
-    const body = (await res.json()) as { text: string };
-    expect(body.text).toContain('95000');
-    expect(body.text).toContain(`${SOURCES_MARKER} Gehaltsbänder`);
+    expect(res.status).toBe(200);
+    await drainDeferredWork();
+    const answer = posted.find((m) => !m.ephemeralUserId);
+    expect(answer?.text).toContain('95000');
+    expect(answer?.text).toContain(`${SOURCES_MARKER} Gehaltsbänder`);
   });
 
   it('every slack question writes a tenant audit entry marked "via slack"', async () => {
     await handleSlackEvents(mentionEvent(TEAM_A, LEAD.slackId, 'Wie viele Urlaubstage?'));
+    await drainDeferredWork();
     const entries = await slackAudit(ORG_A, 'slack.question_answered');
     expect(entries).toHaveLength(1);
     expect(entries[0]!.actorId).toBe(`slack:${LEAD.slackId}`);
@@ -413,6 +445,7 @@ describe('/ergane skill — start runs from Slack', () => {
       commandRequest(TEAM_A, MEMBER.slackId, 'skill wissen_zusammenfassen {"frage":"Gehaltsband Senior Engineers?","rolle":"admin"}'),
     );
     expect(res.status).toBe(200);
+    await drainDeferredWork();
     const run = await withTenant(ORG_A, (tx) => tx.skillRun.findFirstOrThrow());
     expect((run.input as { rolle?: string }).rolle).toBe('member');
   });
@@ -428,8 +461,10 @@ describe('approvals via Slack buttons (role gate enforced by the engine)', () =>
     const res = await handleSlackInteractions(
       interactionRequest(TEAM_A, STRANGER_SLACK_ID, 'ergane_approve', runId),
     );
+    // Unlinked ⇒ rejected synchronously (no work exists to defer).
     const body = (await res.json()) as { response_type: string };
     expect(body.response_type).toBe('ephemeral');
+    await drainDeferredWork();
     expect(await runStatus(ORG_A, runId)).toBe('awaiting_approval');
 
     const denied = await slackAudit(ORG_A, 'slack.approval_denied');
@@ -446,10 +481,13 @@ describe('approvals via Slack buttons (role gate enforced by the engine)', () =>
     const res = await handleSlackInteractions(
       interactionRequest(TEAM_A, MEMBER.slackId, 'ergane_approve', runId),
     );
-    const body = (await res.json()) as { response_type: string };
-    expect(body.response_type).toBe('ephemeral');
+    expect(res.status).toBe(200); // ack first …
+    await drainDeferredWork(); // … the (refused) decision runs afterwards
     expect(await runStatus(ORG_A, runId)).toBe('awaiting_approval');
     expect(await slackAudit(ORG_A, 'slack.approval_denied')).toHaveLength(1);
+    // The role-gate error reached the clicker as an ephemeral message.
+    const ephemeral = posted.find((m) => m.ephemeralUserId === MEMBER.slackId);
+    expect(ephemeral?.text).toContain('may not decide');
     // The acting step never ran.
     const steps = await withTenant(ORG_A, (tx) => tx.skillStep.findMany({ where: { runId } }));
     expect(steps.some((s) => s.name === 'verbucht')).toBe(false);
@@ -462,8 +500,9 @@ describe('approvals via Slack buttons (role gate enforced by the engine)', () =>
     const res = await handleSlackInteractions(
       interactionRequest(TEAM_A, LEAD.slackId, 'ergane_approve', runId),
     );
-    const body = (await res.json()) as { response_type: string; text: string };
-    expect(body.response_type).toBe('in_channel');
+    expect(res.status).toBe(200); // ack first …
+    expect(posted).toHaveLength(0); // … the outcome is not delivered yet (deferred)
+    await drainDeferredWork();
     expect(await runStatus(ORG_A, runId)).toBe('completed');
 
     // Engine audit: the human decision carries the MAPPED user id...
@@ -484,6 +523,7 @@ describe('approvals via Slack buttons (role gate enforced by the engine)', () =>
     const runId = await startGuardedRun();
 
     await handleSlackInteractions(interactionRequest(TEAM_A, LEAD.slackId, 'ergane_reject', runId));
+    await drainDeferredWork();
     expect(await runStatus(ORG_A, runId)).toBe('rejected');
     const steps = await withTenant(ORG_A, (tx) => tx.skillStep.findMany({ where: { runId } }));
     expect(steps.some((s) => s.name === 'verbucht')).toBe(false);
@@ -504,9 +544,12 @@ describe('approvals via Slack buttons (role gate enforced by the engine)', () =>
     const res = await handleSlackInteractions(
       interactionRequest(TEAM_A, LEAD.slackId, 'ergane_approve', handle.runId),
     );
-    const body = (await res.json()) as { response_type: string };
-    expect(body.response_type).toBe('ephemeral');
+    expect(res.status).toBe(200);
+    await drainDeferredWork();
     expect(await runStatus(ORG_B, handle.runId)).toBe('awaiting_approval');
+    // The clicker got an ephemeral error — B's run is simply "not found" for A.
+    const ephemeral = posted.find((m) => m.ephemeralUserId === LEAD.slackId);
+    expect(ephemeral).toBeTruthy();
   });
 });
 

@@ -6,3 +6,6 @@ export { postSlackMessage, setSlackPoster } from './client';
 export type { SlackOutgoingMessage, SlackPoster } from './client';
 export { handleSlackEvents, handleSlackCommands, handleSlackInteractions, approvalBlocks } from './handlers';
 export { createSlackInstallation, linkSlackUser, unlinkSlackUser } from './admin';
+export { deferWork, drainDeferredWork, setDeferKeepAlive } from './defer';
+export type { DeferWorkOptions } from './defer';
+export { claimSlackEvent, cleanupProcessedSlackEvents } from './idempotency';

@@ -8,10 +8,17 @@
 //
 // Gezeigt werden:
 //   0. Sicherheits-Gates: ungültige Signatur ⇒ 401, fremdes Team ⇒ 403
-//   1. Frage via @mention → Antwort mit kanonischer "Quellen:"-Zeile im Thread
-//   2. /ergane skill … → awaiting_approval → Nachricht mit Freigeben/Ablehnen
+//   1. Frage via @mention → SOFORT "ACK 200", DANACH die Antwort mit
+//      kanonischer "Quellen:"-Zeile im Thread (ack-then-work, 3-Sekunden-Regel)
+//   2. /ergane skill … → ACK, dann awaiting_approval-Nachricht mit
+//      Freigeben/Ablehnen-Buttons; dieselbe trigger_id ein zweites Mal ⇒
+//      Duplikat, KEIN zweiter Run (Idempotenz via slack_processed_events)
 //   3. Button-Klicks: unverlinkter Nutzer und member werden abgewiesen
 //      (ephemer), lead gibt frei → Run completed. Alles auditiert "via slack".
+//
+// Die Reihenfolge ist im Output sichtbar: jede "ACK HTTP 200"-Zeile erscheint
+// VOR den zugehörigen "📤 Slack-Nachricht"-Zeilen — die Arbeit läuft über
+// deferWork() nach dem Ack; drainDeferredWork() wartet sie hier sichtbar ab.
 // =============================================================================
 import 'dotenv/config';
 
@@ -31,6 +38,7 @@ import {
   handleSlackInteractions,
 } from '../src/lib/slack/handlers';
 import { setSlackPoster, type SlackOutgoingMessage } from '../src/lib/slack/client';
+import { drainDeferredWork } from '../src/lib/slack/defer';
 
 const DEMO_ORG = '33333333-3333-4333-8333-333333333333';
 const TEAM = 'T_DEMO_ERGANE';
@@ -62,12 +70,13 @@ function mentionEvent(teamId: string, slackUserId: string, text: string): Reques
   return signedRequest(body, 'application/json');
 }
 
-function command(slackUserId: string, text: string): Request {
+function command(slackUserId: string, text: string, triggerId: string): Request {
   const body = new URLSearchParams({
     command: '/ergane',
     team_id: TEAM,
     user_id: slackUserId,
     channel_id: 'C_DEMO',
+    trigger_id: triggerId,
     text,
   }).toString();
   return signedRequest(body, 'application/x-www-form-urlencoded');
@@ -98,6 +107,9 @@ setSlackPoster(async (msg) => {
 
 async function seed() {
   await withTenant(DEMO_ORG, async (tx) => {
+    // Die Demo verwendet feste event-/trigger-Kennungen — alte Idempotenz-
+    // Claims aus früheren Läufen würden sie sonst als Duplikat verschlucken.
+    await tx.slackProcessedEvent.deleteMany({});
     await tx.organization.upsert({
       where: { id: DEMO_ORG },
       create: { id: DEMO_ORG, clerkOrgId: 'demo_org_slack', name: 'Demo Org Slack' },
@@ -169,39 +181,57 @@ async function main() {
   const foreign = await handleSlackEvents(mentionEvent('T_FREMDES_TEAM', LEAD.slackId, 'Hallo?'));
   console.log(`   Nicht gemapptes Team → HTTP ${foreign.status} (erwartet 403)`);
 
-  // ── 1) Frage via @mention → Antwort mit Quelle im Thread ───────────────────
-  console.log('\n── 1) Frage via @mention (Events API) ──');
+  // ── 1) Frage via @mention → ACK zuerst, Antwort danach ─────────────────────
+  console.log('\n── 1) Frage via @mention (Events API, ack-then-work) ──');
   console.log(`   💬 ${LEAD.slackId}: "@ergane Werden Bahnfahrten zweiter Klasse erstattet?"`);
   const events = await handleSlackEvents(
     mentionEvent(TEAM, LEAD.slackId, '<@UBOT> Werden Bahnfahrten zweiter Klasse erstattet?'),
   );
   if (events.status !== 200) throw new Error(`DEMO FAILED: events → ${events.status}`);
+  console.log(`   ✅ ACK HTTP ${events.status} — sofort, VOR der Antwort (noch ${outbox.length === 0 ? 'keine' : outbox.length} Nachricht(en) gepostet)`);
+  await drainDeferredWork();
   const answer = outbox.at(-1);
   if (!answer?.text.includes('Quellen:')) {
     throw new Error('DEMO FAILED: Antwort ohne kanonische Quellen-Zeile.');
   }
 
-  // ── 2) /ergane skill → Guardrail/Policy pausiert, Buttons kommen ───────────
+  // ── 2) /ergane skill → ACK, dann Buttons; Duplikat wird verschluckt ────────
   console.log('\n── 2) /ergane skill beleg_kontieren (1.240 €) ──');
   const cmdRes = await handleSlackCommands(
-    command(MEMBER.slackId, 'skill beleg_kontieren {"beschreibung":"Softwarelizenz Jahresvertrag","betragEur":1240}'),
+    command(MEMBER.slackId, 'skill beleg_kontieren {"beschreibung":"Softwarelizenz Jahresvertrag","betragEur":1240}', 'trig_demo_skill_1'),
   );
-  const cmdBody = (await cmdRes.json()) as {
-    text: string;
-    blocks?: Array<{ elements?: Array<{ action_id: string; value: string; text: { text: string } }> }>;
-  };
-  console.log(`   📥 Antwort an den Kanal: ${cmdBody.text}`);
-  const buttons = cmdBody.blocks?.find((b) => Array.isArray(b.elements))?.elements ?? [];
+  const cmdBody = (await cmdRes.json()) as { text: string };
+  console.log(`   ✅ ACK HTTP ${cmdRes.status} (ephemer): ${cmdBody.text}`);
+  await drainDeferredWork();
+  const withButtons = outbox.find((m) => Array.isArray(m.blocks));
+  const buttons =
+    (withButtons?.blocks as Array<{ elements?: Array<{ action_id: string; value: string; text: { text: string } }> }>)
+      ?.find((b) => Array.isArray(b.elements))?.elements ?? [];
   const runId = buttons.find((b) => b.action_id === 'ergane_approve')?.value;
   if (!runId) throw new Error('DEMO FAILED: keine Freigabe-Buttons erhalten.');
   console.log(`   🔘 Buttons: ${buttons.map((b) => b.text.text).join(' / ')} (Run ${runId.slice(0, 8)}…)`);
 
+  console.log('\n── 2b) Slack re-delivert denselben Command (gleiche trigger_id) ──');
+  const runsBefore = await withTenant(DEMO_ORG, (tx) => tx.skillRun.count());
+  const dupRes = await handleSlackCommands(
+    command(MEMBER.slackId, 'skill beleg_kontieren {"beschreibung":"Softwarelizenz Jahresvertrag","betragEur":1240}', 'trig_demo_skill_1'),
+  );
+  const dupBody = (await dupRes.json()) as { text: string };
+  await drainDeferredWork();
+  const runsAfter = await withTenant(DEMO_ORG, (tx) => tx.skillRun.count());
+  console.log(`   ✅ ACK HTTP ${dupRes.status}: ${dupBody.text}`);
+  console.log(`   🔁 Runs vorher/nachher: ${runsBefore}/${runsAfter} — kein zweiter Run (Idempotenz)`);
+  if (runsAfter !== runsBefore) throw new Error('DEMO FAILED: Duplikat hat einen zweiten Run gestartet.');
+
   // ── 3) Button-Klicks: fail-closed, Rollen-Gate, Freigabe ───────────────────
   console.log('\n── 3a) Unverlinkter Nutzer klickt „Freigeben" (muss scheitern) ──');
   await handleSlackInteractions(buttonClick(STRANGER, 'ergane_approve', runId));
+  await drainDeferredWork();
 
   console.log('\n── 3b) member klickt „Freigeben" — Policy verlangt lead (muss scheitern) ──');
-  await handleSlackInteractions(buttonClick(MEMBER.slackId, 'ergane_approve', runId));
+  const memberClick = await handleSlackInteractions(buttonClick(MEMBER.slackId, 'ergane_approve', runId));
+  console.log(`   ✅ ACK HTTP ${memberClick.status} — Entscheidung läuft nach dem Ack`);
+  await drainDeferredWork();
 
   const stillWaiting = await withTenant(DEMO_ORG, (tx) =>
     tx.skillRun.findUniqueOrThrow({ where: { id: runId } }),
@@ -211,7 +241,9 @@ async function main() {
   }
 
   console.log('\n── 3c) lead klickt „Freigeben" (berechtigt) ──');
-  await handleSlackInteractions(buttonClick(LEAD.slackId, 'ergane_approve', runId));
+  const leadClick = await handleSlackInteractions(buttonClick(LEAD.slackId, 'ergane_approve', runId));
+  console.log(`   ✅ ACK HTTP ${leadClick.status} — Ergebnis folgt im Thread`);
+  await drainDeferredWork();
   const done = await withTenant(DEMO_ORG, (tx) =>
     tx.skillRun.findUniqueOrThrow({ where: { id: runId } }),
   );
@@ -232,9 +264,10 @@ async function main() {
   }
 
   console.log(
-    '\n✅  Demo erfolgreich: Signatur-Gate (401), Team-Gate (403), Antwort mit Quelle,' +
-      '\n    Skill → awaiting_approval mit Buttons, fail-closed Klicks (unverlinkt/member),' +
-      '\n    Freigabe durch lead → completed. Alles tenant-gebunden und auditiert.',
+    '\n✅  Demo erfolgreich: Signatur-Gate (401), Team-Gate (403), ack-then-work' +
+      '\n    (jedes ACK 200 VOR der nachgelieferten Antwort), Idempotenz (Duplikat ⇒' +
+      '\n    kein zweiter Run), fail-closed Klicks (unverlinkt/member), Freigabe durch' +
+      '\n    lead → completed. Alles tenant-gebunden und auditiert.',
   );
 }
 

@@ -13,23 +13,35 @@
 //                   floor applies to Slack exactly as it does to the UI.
 //   3. USER → ROLE — getSlackUserLink(). No link ⇒ read-only behavior: open
 //                   knowledge only, NEVER start skills, NEVER approve.
-//   4. ACT via the EXISTING functions (answerQuestion / startRun / approve /
-//                   reject) — Slack adds no business logic of its own.
-//   5. AUDIT      — besides the audit entries the underlying functions write,
+//   4. IDEMPOTENCY — claimSlackEvent() atomically claims the request's stable
+//                   key (event_id / trigger_id). Already claimed ⇒ duplicate
+//                   delivery ⇒ ack 200, do nothing (src/lib/slack/idempotency.ts).
+//   5. ACK-THEN-WORK — only now the handler returns 200 and the actual work
+//                   (answerQuestion / startRun / approve / reject) runs via
+//                   deferWork() AFTER the response; results are delivered with
+//                   the Slack poster (chat.postMessage), failures are logged
+//                   and reported to the user in Slack (src/lib/slack/defer.ts).
+//                   This honors Slack's 3-second rule: no LLM call ever blocks
+//                   the ack, so Slack has no reason to redeliver.
+//   6. AUDIT      — besides the audit entries the underlying functions write,
 //                   the adapter records every Slack action as slack.* with
 //                   detail { via: 'slack', slackTeamId, slackUserId, … }.
 //
-// 3-second rule: slash commands and interactions answer synchronously in the
-// 200 body (fast paths — no LLM chain beyond one answer). Events (mentions)
-// deliver the answer via chat.postMessage into the thread; the MVP computes it
-// before acking — with real providers move the work behind the ack (waitUntil/
-// queue), see README "Slack lokal testen".
+// Gates 1–4 stay IN FRONT of the ack on purpose: an unsigned/foreign request
+// still gets its 401/403 immediately, never a premature 200. Only verified,
+// tenant-resolved, first-delivery requests are acked and processed.
+//
+// The url_verification challenge (events) is the one synchronous exception —
+// Slack needs the challenge value in the response body, there is no work to
+// defer.
 import { logAudit } from '../audit';
 import { answerQuestion } from '../rag';
 import { approve, getSkill, reject, startRun, type SkillJson } from '../skills';
 import { withTenant } from '../tenant';
 import { postSlackMessage } from './client';
-import { getSlackUserLink, resolveSlackTeam, type SlackUserIdentity } from './team';
+import { deferWork } from './defer';
+import { claimSlackEvent } from './idempotency';
+import { getSlackUserLink, resolveSlackTeam } from './team';
 import { verifySlackSignature } from './verify';
 
 const USAGE =
@@ -40,6 +52,9 @@ const NOT_LINKED =
   'Dein Slack-Konto ist nicht mit einem Mitglied dieser Organisation verknüpft. ' +
   'Fragen zu offenem Wissen sind möglich — Skills starten oder freigeben nicht. ' +
   'Ein Admin kann dich unter Einstellungen → Slack verknüpfen.';
+
+const WORK_FAILED =
+  'Die Verarbeitung ist fehlgeschlagen. Bitte versuche es erneut oder wende dich an einen Admin.';
 
 /** Slack actor id for audit entries — always marks the external origin. */
 function slackActor(slackUserId: string | null | undefined): string {
@@ -107,6 +122,7 @@ interface SlackEventPayload {
   type?: string;
   challenge?: string;
   team_id?: string;
+  event_id?: string;
   event?: {
     type?: string;
     subtype?: string;
@@ -126,7 +142,8 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
 
   const payload = JSON.parse(signed.rawBody) as SlackEventPayload;
 
-  // Slack's endpoint handshake — happens before any team mapping can exist.
+  // Slack's endpoint handshake — synchronous by design: the response body must
+  // carry the challenge, and there is no work to defer.
   if (payload.type === 'url_verification') {
     return json({ challenge: payload.challenge ?? '' });
   }
@@ -149,30 +166,48 @@ export async function handleSlackEvents(req: Request): Promise<Response> {
   const question = stripMentions(event.text ?? '');
   if (!question) return new Response('ignored', { status: 200 });
 
-  // Role of the asker — no link ⇒ undefined ⇒ answerQuestion falls back to
-  // 'open' documents only (the RAG layer's fail-closed disclosure default).
+  // Gate 3 (before the ack): role of the asker — no link ⇒ undefined ⇒
+  // answerQuestion falls back to 'open' documents only (fail-closed).
   const link = await getSlackUserLink(orgId, event.user);
 
-  const result = await answerQuestion({
-    orgId,
-    actorId: slackActor(event.user),
-    question,
-    role: link?.role,
-  });
+  // Gate 4: claim this delivery. Slack's event_id is stable across retries of
+  // the same event; the (team, ts) pair is the documented fallback.
+  const eventKey = `events:${payload.event_id ?? `${payload.team_id}:${event.ts}`}`;
+  if (!(await claimSlackEvent(orgId, eventKey))) {
+    return new Response('duplicate delivery ignored', { status: 200 });
+  }
 
-  await auditSlack(orgId, event.user, 'slack.question_answered', question.slice(0, 120), {
-    slackTeamId: payload.team_id,
-    slackUserId: event.user,
-    linked: Boolean(link),
-    role: link?.role ?? null,
-    sources: result.sources,
-  });
+  const channel = event.channel;
+  const threadTs = event.thread_ts ?? event.ts;
+  const slackUserId = event.user;
+  const teamId = payload.team_id;
 
-  await postSlackMessage({
-    channel: event.channel,
-    thread_ts: event.thread_ts ?? event.ts,
-    text: result.answer,
-  });
+  // Ack-then-work: the answer (potentially a real LLM call) runs AFTER the 200.
+  deferWork(
+    async () => {
+      const result = await answerQuestion({
+        orgId,
+        actorId: slackActor(slackUserId),
+        question,
+        role: link?.role,
+      });
+
+      await auditSlack(orgId, slackUserId, 'slack.question_answered', question.slice(0, 120), {
+        slackTeamId: teamId,
+        slackUserId,
+        linked: Boolean(link),
+        role: link?.role ?? null,
+        sources: result.sources,
+      });
+
+      await postSlackMessage({ channel, thread_ts: threadTs, text: result.answer });
+    },
+    {
+      label: 'events:answer',
+      onFailure: () =>
+        postSlackMessage({ channel, thread_ts: threadTs, text: WORK_FAILED, ephemeralUserId: slackUserId }),
+    },
+  );
 
   return new Response('ok', { status: 200 });
 }
@@ -227,34 +262,60 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
   if (orgId instanceof Response) return orgId;
 
   const slackUserId = params.get('user_id');
+  const teamId = params.get('team_id');
+  const channel = params.get('channel_id') ?? '';
+  const triggerId = params.get('trigger_id');
   const text = (params.get('text') ?? '').trim();
   const [subcommand, ...rest] = text.split(/\s+/);
+
+  /** Gate 4 for commands: trigger_id is unique per invocation and identical on
+   * retries of the SAME delivery. Missing (never with real Slack) ⇒ no claim. */
+  const claimCommand = async (): Promise<boolean> =>
+    triggerId ? claimSlackEvent(orgId, `commands:${triggerId}`) : true;
 
   if (subcommand === 'frage') {
     const question = rest.join(' ').trim();
     if (!question) return json({ response_type: 'ephemeral', text: USAGE });
 
     const link = await getSlackUserLink(orgId, slackUserId);
-    const result = await answerQuestion({
-      orgId,
-      actorId: slackActor(slackUserId),
-      question,
-      role: link?.role,
-    });
+    if (!(await claimCommand())) {
+      return json({ response_type: 'ephemeral', text: 'Diese Anfrage wird bereits verarbeitet.' });
+    }
 
-    await auditSlack(orgId, slackUserId, 'slack.question_answered', question.slice(0, 120), {
-      slackTeamId: params.get('team_id'),
-      slackUserId,
-      linked: Boolean(link),
-      role: link?.role ?? null,
-      sources: result.sources,
-    });
+    // Ack-then-work: the immediate 200 body is the "in progress" note; the
+    // answer follows via chat.postMessage into the channel.
+    deferWork(
+      async () => {
+        const result = await answerQuestion({
+          orgId,
+          actorId: slackActor(slackUserId),
+          question,
+          role: link?.role,
+        });
 
-    return json({ response_type: 'in_channel', text: result.answer });
+        await auditSlack(orgId, slackUserId, 'slack.question_answered', question.slice(0, 120), {
+          slackTeamId: teamId,
+          slackUserId,
+          linked: Boolean(link),
+          role: link?.role ?? null,
+          sources: result.sources,
+        });
+
+        await postSlackMessage({ channel, text: result.answer });
+      },
+      {
+        label: 'commands:frage',
+        onFailure: () =>
+          postSlackMessage({ channel, text: WORK_FAILED, ephemeralUserId: slackUserId ?? undefined }),
+      },
+    );
+
+    return json({ response_type: 'ephemeral', text: '… deine Frage wird bearbeitet.' });
   }
 
   if (subcommand === 'skill') {
     // Acting requires a linked membership — fail-closed for unknown users.
+    // Validation errors answer synchronously: there is no work to defer.
     const link = await getSlackUserLink(orgId, slackUserId);
     if (!link) return json({ response_type: 'ephemeral', text: NOT_LINKED });
 
@@ -287,33 +348,51 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
     // into the JSON args is overwritten.
     input = { ...input, rolle: link.role };
 
-    const handle = await startRun(orgId, skill.key, input);
-
-    await auditSlack(orgId, slackUserId, 'slack.skill_started', `${skill.key}:${handle.runId}`, {
-      slackTeamId: params.get('team_id'),
-      slackUserId,
-      userId: link.userId,
-      role: link.role,
-      status: handle.status,
-    });
-
-    if (handle.status === 'awaiting_approval') {
-      const approval = await withTenant(orgId, (tx) =>
-        tx.approval.findFirst({ where: { runId: handle.runId, status: 'pending' } }),
-      );
-      const reason = approval?.reason ?? 'Freigabe erforderlich';
-      const requiredRole = approval?.requiredRole ? ` (Rolle: ${approval.requiredRole}+)` : '';
-      return json({
-        response_type: 'in_channel',
-        text: `Skill ${skill.key} wartet auf Freigabe${requiredRole}: ${reason}`,
-        blocks: approvalBlocks(skill.key, handle.runId, `${reason}${requiredRole}`),
-      });
+    if (!(await claimCommand())) {
+      return json({ response_type: 'ephemeral', text: 'Diese Anfrage wird bereits verarbeitet.' });
     }
 
-    return json({
-      response_type: 'in_channel',
-      text: `Skill *${skill.key}* → Status: *${handle.status}* (Run \`${handle.runId}\`)`,
-    });
+    // Ack-then-work: the run (guardrail, steps, possibly pausing) executes
+    // after the 200; outcome or approval buttons arrive via chat.postMessage.
+    deferWork(
+      async () => {
+        const handle = await startRun(orgId, skill.key, input);
+
+        await auditSlack(orgId, slackUserId, 'slack.skill_started', `${skill.key}:${handle.runId}`, {
+          slackTeamId: teamId,
+          slackUserId,
+          userId: link.userId,
+          role: link.role,
+          status: handle.status,
+        });
+
+        if (handle.status === 'awaiting_approval') {
+          const approval = await withTenant(orgId, (tx) =>
+            tx.approval.findFirst({ where: { runId: handle.runId, status: 'pending' } }),
+          );
+          const reason = approval?.reason ?? 'Freigabe erforderlich';
+          const requiredRole = approval?.requiredRole ? ` (Rolle: ${approval.requiredRole}+)` : '';
+          await postSlackMessage({
+            channel,
+            text: `Skill ${skill.key} wartet auf Freigabe${requiredRole}: ${reason}`,
+            blocks: approvalBlocks(skill.key, handle.runId, `${reason}${requiredRole}`),
+          });
+          return;
+        }
+
+        await postSlackMessage({
+          channel,
+          text: `Skill *${skill.key}* → Status: *${handle.status}* (Run \`${handle.runId}\`)`,
+        });
+      },
+      {
+        label: 'commands:skill',
+        onFailure: () =>
+          postSlackMessage({ channel, text: WORK_FAILED, ephemeralUserId: slackUserId ?? undefined }),
+      },
+    );
+
+    return json({ response_type: 'ephemeral', text: `… Skill \`${skill.key}\` wird gestartet.` });
   }
 
   return json({ response_type: 'ephemeral', text: USAGE });
@@ -325,6 +404,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
 
 interface SlackInteractionPayload {
   type?: string;
+  trigger_id?: string;
   team?: { id?: string };
   user?: { id?: string };
   channel?: { id?: string };
@@ -357,66 +437,82 @@ export async function handleSlackInteractions(req: Request): Promise<Response> {
   if (!decision || !runId) return new Response('ignored', { status: 200 });
 
   const slackUserId = payload.user?.id;
+  const teamId = payload.team?.id;
   const channel = payload.channel?.id;
   const threadTs = payload.message?.thread_ts ?? payload.message?.ts;
 
-  const respond = async (text: string, ephemeral: boolean): Promise<Response> => {
-    if (channel) {
-      await postSlackMessage({
-        channel,
-        thread_ts: threadTs,
-        text,
-        ...(ephemeral && slackUserId ? { ephemeralUserId: slackUserId } : {}),
-      });
-    }
-    // Slack ignores this body (delivery happens via postSlackMessage above);
-    // tests and the demo read it as the handler's outcome.
-    return json({ response_type: ephemeral ? 'ephemeral' : 'in_channel', text });
+  const notify = async (text: string, ephemeral: boolean): Promise<void> => {
+    if (!channel) return;
+    await postSlackMessage({
+      channel,
+      thread_ts: threadTs,
+      text,
+      ...(ephemeral && slackUserId ? { ephemeralUserId: slackUserId } : {}),
+    });
   };
 
-  // Fail-closed: only a LINKED Slack user may decide anything.
+  // Gate 3 (before the ack), fail-closed: only a LINKED Slack user may decide.
   const link = await getSlackUserLink(orgId, slackUserId);
   if (!link) {
     await auditSlack(orgId, slackUserId, 'slack.approval_denied', runId, {
-      slackTeamId: payload.team?.id,
+      slackTeamId: teamId,
       slackUserId,
       decision,
       reason: 'slack user not linked to a membership',
     });
-    return respond(NOT_LINKED, true);
+    await notify(NOT_LINKED, true);
+    return json({ response_type: 'ephemeral', text: NOT_LINKED });
   }
 
-  try {
-    // The engine's decide() enforces the approval's required_role against the
-    // decider's CURRENT membership role — the role gate lives there, not here.
-    const handle =
-      decision === 'approved'
-        ? await approve(orgId, runId, link.userId)
-        : await reject(orgId, runId, link.userId);
-
-    await auditSlack(orgId, slackUserId, `slack.approval_${decision}`, runId, {
-      slackTeamId: payload.team?.id,
-      slackUserId,
-      userId: link.userId,
-      role: link.role,
-      resultStatus: handle.status,
-    });
-
-    const verb = decision === 'approved' ? 'freigegeben' : 'abgelehnt';
-    return respond(
-      `Run \`${runId}\` wurde von <@${slackUserId}> ${verb} → Status: *${handle.status}*`,
-      false,
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await auditSlack(orgId, slackUserId, 'slack.approval_denied', runId, {
-      slackTeamId: payload.team?.id,
-      slackUserId,
-      userId: link.userId,
-      role: link.role,
-      decision,
-      reason: message,
-    });
-    return respond(`Keine Berechtigung oder ungültiger Zustand: ${message}`, true);
+  // Gate 4: one click = one decision attempt, even if Slack redelivers it.
+  const eventKey = `interactions:${payload.trigger_id ?? `${teamId}:${slackUserId}:${decision}:${runId}`}`;
+  if (!(await claimSlackEvent(orgId, eventKey))) {
+    return new Response('duplicate delivery ignored', { status: 200 });
   }
+
+  // Ack-then-work: the decision executes after the 200; outcome (or the role-
+  // gate error from the engine) is delivered into the thread.
+  deferWork(
+    async () => {
+      try {
+        // The engine's decide() enforces the approval's required_role against
+        // the decider's CURRENT membership role — the role gate lives there.
+        const handle =
+          decision === 'approved'
+            ? await approve(orgId, runId, link.userId)
+            : await reject(orgId, runId, link.userId);
+
+        await auditSlack(orgId, slackUserId, `slack.approval_${decision}`, runId, {
+          slackTeamId: teamId,
+          slackUserId,
+          userId: link.userId,
+          role: link.role,
+          resultStatus: handle.status,
+        });
+
+        const verb = decision === 'approved' ? 'freigegeben' : 'abgelehnt';
+        await notify(
+          `Run \`${runId}\` wurde von <@${slackUserId}> ${verb} → Status: *${handle.status}*`,
+          false,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await auditSlack(orgId, slackUserId, 'slack.approval_denied', runId, {
+          slackTeamId: teamId,
+          slackUserId,
+          userId: link.userId,
+          role: link.role,
+          decision,
+          reason: message,
+        });
+        await notify(`Keine Berechtigung oder ungültiger Zustand: ${message}`, true);
+      }
+    },
+    {
+      label: 'interactions:decision',
+      onFailure: () => notify(WORK_FAILED, true),
+    },
+  );
+
+  return json({ ok: true });
 }
