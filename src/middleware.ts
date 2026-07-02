@@ -4,10 +4,16 @@ import { NextResponse } from 'next/server';
 // Public routes need no session. Everything else requires a signed-in user AND
 // an active organization. This is the first line of the tenant guard: a request
 // can never reach a tenant page without a verified org in its session.
-// /api/slack/* is public by design: Slack calls it without a Clerk session —
-// those routes authenticate every request via the Slack signature and map the
-// workspace to an org themselves (src/lib/slack/handlers.ts, fail-closed).
-const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/slack(.*)']);
+// /api/slack/* and /api/clerk/* are public by design: Slack and Clerk (Svix)
+// call them without a Clerk session — both authenticate every request via
+// their signature (src/lib/slack/handlers.ts, src/lib/clerk/webhooks.ts,
+// fail-closed) before anything runs.
+const isPublicRoute = createRouteMatcher([
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/api/slack(.*)',
+  '/api/clerk(.*)',
+]);
 const isOrgSelectRoute = createRouteMatcher(['/select-org(.*)']);
 
 export default clerkMiddleware(async (auth, req) => {
