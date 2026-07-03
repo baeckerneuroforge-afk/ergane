@@ -12,6 +12,7 @@ import { setUiLocale } from '@/lib/i18n/actions';
 import { getI18n } from '@/lib/i18n/server';
 import { withTenant } from '@/lib/tenant';
 import { listSkills } from '@/lib/skills';
+import { getValueSettings, DEFAULT_HOURLY_RATE_USD } from '@/lib/value';
 import { VisibilityBadge, formatEuro } from '../ui';
 import {
   eraseOrganization,
@@ -20,6 +21,7 @@ import {
   saveChatRetention,
   saveCompanyProfile,
   saveOrgLocale,
+  saveValueSettings,
   removeSlackUserLink,
   saveApprovalPolicy,
   saveMembershipRole,
@@ -37,6 +39,7 @@ const TAB_KEYS = [
   'visibility',
   'members',
   'company',
+  'value',
   'slack',
   'language',
   'data',
@@ -75,8 +78,16 @@ export default async function SettingsPage({
   ];
 
   const skills = listSkills();
-  const { policies, grants, documents, memberships, slackInstallations, slackLinks, orgSettings } =
-    await withTenant(orgId, async (tx) => ({
+  const {
+    policies,
+    grants,
+    documents,
+    memberships,
+    slackInstallations,
+    slackLinks,
+    orgSettings,
+    valueSettings,
+  } = await withTenant(orgId, async (tx) => ({
       policies: await tx.approvalPolicy.findMany(),
       grants: await tx.visibilityGrant.findMany(),
       documents: await tx.document.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
@@ -84,6 +95,7 @@ export default async function SettingsPage({
       slackInstallations: await tx.slackInstallation.findMany({ orderBy: { createdAt: 'asc' } }),
       slackLinks: await tx.slackUserLink.findMany({ orderBy: { createdAt: 'asc' } }),
       orgSettings: await tx.orgSettings.findUnique({ where: { orgId } }),
+      valueSettings: await getValueSettings(tx, orgId),
     }));
 
   const granted = new Set(grants.map((g) => `${g.level}:${g.role}`));
@@ -382,6 +394,69 @@ export default async function SettingsPage({
             <button type="submit" className="btn btn--primary">
               {t.common.save}
             </button>
+          </form>
+        </section>
+      ) : null}
+
+      {tab === 'value' ? (
+        <section className="card card--table">
+          <div className="card-title">
+            <h2>{s.valueTitle}</h2>
+          </div>
+          <p className="muted" style={{ padding: '0 1.25rem' }}>
+            {s.valueHint}
+          </p>
+          <form action={saveValueSettings}>
+            <div style={{ padding: '0 1.25rem' }}>
+              <label htmlFor="hourlyRateUsd">{s.valueHourlyRate}</label>
+              <input
+                id="hourlyRateUsd"
+                name="hourlyRateUsd"
+                type="number"
+                step="0.01"
+                min="0.01"
+                defaultValue={valueSettings.hourlyRateUsd}
+                placeholder={String(DEFAULT_HOURLY_RATE_USD)}
+                className="select--inline"
+                style={{ width: '8rem' }}
+                required
+              />
+            </div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t.common.skill}</th>
+                  <th>{s.valueMinutes}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {skills.map((skill) => (
+                  <tr key={skill.key}>
+                    <td>
+                      <strong>{t.skillTitles[skill.key] ?? skill.title}</strong>
+                      <div className="row-meta mono">{skill.key}</div>
+                    </td>
+                    <td>
+                      <input
+                        name={`minutes:${skill.key}`}
+                        type="number"
+                        step="1"
+                        min="0"
+                        defaultValue={valueSettings.minutesPerSkill[skill.key]}
+                        aria-label={`${s.valueMinutes} — ${skill.key}`}
+                        className="select--inline"
+                        style={{ width: '7rem' }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ padding: '0 1.25rem 1rem' }}>
+              <button type="submit" className="btn btn--primary">
+                {t.common.save}
+              </button>
+            </div>
           </form>
         </section>
       ) : null}

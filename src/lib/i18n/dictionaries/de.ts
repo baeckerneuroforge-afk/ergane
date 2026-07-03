@@ -11,6 +11,7 @@ export const de: Dictionary = {
     skills: 'Skills',
     runs: 'Ausführungen',
     approvals: 'Freigaben',
+    value: 'Wertbeitrag',
     audit: 'Audit',
     settings: 'Einstellungen',
     runDetail: 'Ausführung',
@@ -26,6 +27,7 @@ export const de: Dictionary = {
       skills: 'Abläufe starten — Guardrails und Freigaben inklusive',
       runs: 'Jeder Lauf mit Status, Schritten und Ergebnis',
       approvals: 'Handelnde Schritte, die auf eine menschliche Entscheidung warten',
+      value: 'Was die Automatisierung spart — Stunden und Dollar, nur aus Live-Läufen',
       audit: 'Append-only Protokoll — nichts wird verändert oder gelöscht',
       settings: 'Freigabe-Regeln, Sichtbarkeit, Rollen, Slack, DSGVO',
       runDetail: 'Schritt-Timeline, Freigaben und Ergebnis dieses Laufs',
@@ -67,6 +69,7 @@ export const de: Dictionary = {
       rejected: 'abgelehnt',
     },
     actor: { human: 'Mensch', agent: 'Agent' },
+    mode: { live: 'Live', simulation: 'Probelauf' },
   },
 
   overview: {
@@ -74,6 +77,7 @@ export const de: Dictionary = {
     kpiSkills: 'Skills verfügbar',
     kpiRuns7d: 'Ausführungen (7 Tage)',
     kpiPendingApprovals: 'Wartende Freigaben',
+    kpiValue30d: 'Wertbeitrag (30 Tage)',
     recentActivity: 'Letzte Aktivität',
     fullAudit: 'Vollständiges Audit →',
     bannerWaiting: (n: number) => (n === 1 ? `${n} Ausführung wartet` : `${n} Ausführungen warten`),
@@ -90,6 +94,35 @@ export const de: Dictionary = {
     quickSkillsHint: 'Automatisierungen starten — Guardrails inklusive.',
     quickKnowledgeHint: 'Dokumente ingestieren und Sichtbarkeit steuern.',
     quickChatHint: 'Fragen ans geprüfte Wissen — Antworten mit Quellen.',
+  },
+
+  value: {
+    intro:
+      'Der Automation Score: was Ihre Live-Skill-Läufe in Stunden und Dollar sparen. Zählt ausschließlich LIVE-Läufe — Probeläufe (Simulationen) erscheinen hier nie. Die Annahmen pro Skill sind editierbar in den',
+    introSettingsLink: 'Einstellungen',
+    periodAria: 'Zeitraum',
+    periodDays: (n: number) => `Letzte ${n} Tage`,
+    kpiRuns: 'Live-Läufe',
+    kpiSuccessRate: 'Erfolgsquote',
+    kpiSavedHours: 'Gesparte Stunden',
+    kpiSavedValue: 'Wertbeitrag',
+    successRateHint: (completed: number, decided: number) =>
+      `${completed} von ${decided} entschiedenen Läufen abgeschlossen`,
+    noDecidedRuns: 'noch keine entschiedenen Läufe',
+    perSkillTitle: 'Pro Skill',
+    perSkillHint:
+      'Wert entsteht nur durch abgeschlossene Live-Läufe: gesparte Minuten pro Lauf × Stundensatz.',
+    colRuns: 'Läufe',
+    colCompleted: 'Abgeschlossen',
+    colSavedHours: 'Gesparte Stunden',
+    colSavedValue: 'Wert',
+    monthlyTitle: 'Monatsverlauf',
+    colMonth: 'Monat',
+    noRuns:
+      'Noch keine Live-Läufe in diesem Zeitraum. Starten Sie einen Skill — jeder abgeschlossene Live-Lauf zahlt hier ein.',
+    assumptions: (rate: string) =>
+      `Annahme: eine gesparte Stunde ist ${rate} wert. Admins passen Stundensatz und Minuten pro Skill in den Einstellungen an.`,
+    hours: (n: number) => `${n} h`,
   },
 
   onboarding: {
@@ -178,6 +211,10 @@ export const de: Dictionary = {
       'Skills sind deklarierte Abläufe der Engine: lesende Schritte laufen frei, handelnde Schritte stehen hinter Guardrail und menschlicher Freigabe.',
     acts: 'handelt',
     readsOnly: 'liest nur',
+    dryRun: {
+      toggle: 'Probelauf — nichts wird ausgeführt',
+      hint: 'Alle Schritte und Guardrail-Prüfungen laufen weiterhin; handelnde Schritte werden nur simuliert.',
+    },
     guardrail: {
       policyAlways: 'Freigabe: immer erforderlich (Policy)',
       policyThreshold: (amount: string) => `Freigabe ab ${amount} (Policy)`,
@@ -220,6 +257,7 @@ export const de: Dictionary = {
     emptyHintPrefix: 'Starte einen Skill unter',
     emptyHintSuffix: '— jeder Lauf erscheint hier mit Status und Schritt-Timeline.',
     startedAt: 'Gestartet am',
+    simulation: 'Probelauf',
   },
 
   runDetail: {
@@ -236,6 +274,14 @@ export const de: Dictionary = {
     decidedAt: 'am',
     result: 'Ergebnis',
     noResult: 'Noch kein Ergebnis — der Run ist nicht abgeschlossen.',
+    simulation: {
+      bannerTitle: 'Testlauf — nichts wurde ausgeführt',
+      bannerBody:
+        'Dies war ein Probelauf: alle Schritte und Guardrail-Prüfungen liefen, aber jeder handelnde Schritt wurde nur simuliert — nichts hat das System verlassen.',
+      stepBadge: 'simuliert',
+      wouldRequireApproval: 'Würde Freigabe erfordern:',
+      wouldExecuteNote: 'Handelnder Schritt — simuliert, nicht ausgeführt.',
+    },
   },
 
   approvals: {
@@ -285,6 +331,7 @@ export const de: Dictionary = {
       visibility: 'Wissens-Sichtbarkeit',
       members: 'Mitglieder & Rollen',
       company: 'Firmendaten',
+      value: 'Wert-Annahmen',
       slack: 'Slack',
       language: 'Sprache',
       data: 'Daten & Löschung',
@@ -347,6 +394,13 @@ export const de: Dictionary = {
     companyVatIdPlaceholder: 'z. B. DE123456789',
     companyBank: 'Bankverbindung',
     companyBankPlaceholder: 'Musterbank\nIBAN: DE00 0000 0000 0000 0000 00\nBIC: XXXXDEXX',
+    valueTitle: 'Wert-Annahmen (Wertbeitrag-Dashboard)',
+    valueHint:
+      'So rechnet das Wertbeitrag-Dashboard abgeschlossene Live-Läufe in Stunden und Dollar um: gesparte Minuten pro erfolgreichem Lauf × Stundensatz. Annahmen, keine Messwerte — jede Änderung wird auditiert. Probeläufe zählen nie.',
+    valueHourlyRate: 'Stundensatz (USD)',
+    valueMinutesTitle: 'Gesparte Minuten pro erfolgreichem Lauf',
+    valueMinutes: 'Minuten / Lauf',
+    valueDefaultChip: 'Standard',
     slackTitle: 'Slack-Verbindung',
     slackHint:
       'Ein Slack-Workspace (Team) wird auf genau eine Organisation gemappt. Anfragen aus nicht gemappten Workspaces werden abgewiesen. MVP: die Team-ID wird manuell eingetragen — ein OAuth-Install-Flow ist ein späterer Schritt. Der Bot-Token bleibt in .env (SLACK_BOT_TOKEN); die Datenbank speichert nur einen Verweis, nie das Secret.',

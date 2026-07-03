@@ -182,6 +182,24 @@ export default async function SkillsPage() {
                     <textarea id={`input-${skill.key}`} name="inputJson" rows={4} defaultValue="{}" />
                   </>
                 )}
+                <label
+                  style={{
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'flex-start',
+                    fontWeight: 'normal',
+                    cursor: 'pointer',
+                    margin: '0.25rem 0 0.7rem',
+                  }}
+                >
+                  <input type="checkbox" name="dryRun" style={{ marginTop: '0.2rem' }} />
+                  <span>
+                    {t.skills.dryRun.toggle}
+                    <span className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+                      {t.skills.dryRun.hint}
+                    </span>
+                  </span>
+                </label>
                 <button type="submit" className="btn btn--primary">
                   {t.common.execute}
                 </button>

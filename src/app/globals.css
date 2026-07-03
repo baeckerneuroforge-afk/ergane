@@ -854,6 +854,23 @@ button { font: inherit; cursor: pointer; }
 
 .card--awaiting a { color: var(--amber); font-weight: 600; }
 
+/* Probelauf-Banner (dry-run): deutlich sichtbar, aber nicht alarmierend — es ist
+   kein Fehler, sondern ein bewusst gefahrloser Testlauf. */
+.card--sim {
+  background: color-mix(in srgb, var(--indigo) 6%, white);
+  border-color: color-mix(in srgb, var(--indigo) 35%, white);
+  border-left: 3px solid var(--indigo);
+}
+.card--sim strong { color: var(--indigo); }
+
+/* Dry-run / simulation marker chip — dashed border reads as "not a real run". */
+.chip--sim {
+  color: var(--indigo);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--indigo) 45%, white);
+  background: color-mix(in srgb, var(--indigo) 6%, white);
+}
+
 /* --- Audit / Filter ------------------------------------------------------------ */
 .filter-chips {
   display: flex;

@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { getI18n } from '@/lib/i18n/server';
+import { formatMoney } from '@/lib/money';
 import { listSkills } from '@/lib/skills';
 import { withTenant } from '@/lib/tenant';
+import { computeValueStats } from '@/lib/value';
 import { OnboardingCard } from './onboarding';
 import { ActorChip, formatDateTime } from './ui';
 
@@ -33,6 +35,7 @@ const ICONS = {
   approvals: 'M9 12l2 2 4-4M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z',
   chat: 'M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 1 1 16.1-3.8z',
   arrow: 'M5 12h14M13 6l6 6-6 6',
+  value: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6',
 } as const;
 
 export default async function DashboardPage() {
@@ -41,13 +44,20 @@ export default async function DashboardPage() {
   const o = t.overview;
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const { documentCount, runsLast7d, pendingApprovals, recentAudit, onboarding } =
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const { documentCount, runsLast7d, pendingApprovals, recentAudit, onboarding, valueStats } =
     await withTenant(orgId, async (tx) => {
       const documents = await tx.document.count();
       return {
         documentCount: documents,
-        runsLast7d: await tx.skillRun.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+        // Value/activity KPI: count only LIVE runs — a dry-run (simulation) is
+        // never a real execution and must not inflate this figure.
+        runsLast7d: await tx.skillRun.count({
+          where: { mode: 'live', createdAt: { gte: sevenDaysAgo } },
+        }),
         pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
+        // Automation value, last 30 days — live runs only (simulations never count).
+        valueStats: await computeValueStats(tx, orgId, { since: thirtyDaysAgo }),
         recentAudit: await tx.auditLog.findMany({
           // The overview row shows time/action/actor only — skip `detail` (JSON).
           select: { id: true, createdAt: true, action: true, actorType: true },
@@ -95,6 +105,13 @@ export default async function DashboardPage() {
       href: '/dashboard/approvals',
       icon: ICONS.approvals,
       attention: pendingApprovals > 0,
+    },
+    {
+      label: o.kpiValue30d,
+      value: formatMoney(valueStats.savedUsd),
+      href: '/dashboard/value',
+      icon: ICONS.value,
+      attention: false,
     },
   ];
 

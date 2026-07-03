@@ -91,6 +91,17 @@ enum ApprovalStatus {
   @@map("approval_status")
 }
 
+/// How a run was executed. 'live' = real execution (acting steps run).
+/// 'simulation' = dry-run ("Probelauf"): guardrails/approval checks still run
+/// and are shown, but acting steps are SIMULATED, never executed. Value/activity
+/// aggregations filter mode='live' — a simulation never counts as a real run.
+enum SkillRunMode {
+  live
+  simulation
+
+  @@map("skill_run_mode")
+}
+
 /// Tenant root. RLS ENABLE + FORCE with a SELF-ROW policy keyed on `id` (which
 /// is the tenant key), so a tenant can see/modify only its own org row.
 /// `id` is an internal UUID; `clerkOrgId` links it to the verified Clerk org.
@@ -174,6 +185,10 @@ model OrgSettings {
   // Org-wide output language (generated PDFs, outgoing e-mails): 'en' | 'de'.
   // The UI language is per browser (cookie), NOT this field.
   locale            String   @default("en")
+  // Value-dashboard assumptions (USD). NULL / missing map key = code default
+  // (src/lib/value.ts). Admin-editable, audited as 'policy.changed'.
+  valueHourlyRateUsd   Decimal? @map("value_hourly_rate_usd") @db.Decimal(8, 2)
+  valueMinutesPerSkill Json?    @map("value_minutes_per_skill")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -245,6 +260,8 @@ model SkillRun {
   orgId     String         @map("org_id") @db.Uuid
   skillKey  String         @map("skill_key")
   status    SkillRunStatus @default(running)
+  /// 'live' (default) or 'simulation' (dry-run). See SkillRunMode.
+  mode      SkillRunMode   @default(live)
   input     Json
   result    Json?
   createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -256,6 +273,8 @@ model SkillRun {
 
   @@unique([id, orgId])
   @@index([orgId, createdAt(sort: Desc)])
+  // Mode-filtered aggregations (value dashboard): count/list runs by mode.
+  @@index([orgId, mode])
   @@map("skill_runs")
 }
 

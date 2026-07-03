@@ -80,6 +80,11 @@ const SECTIONS: NavSection[] = [
         key: 'approvals',
         icon: <Icon d="M9 12l2 2 4-4M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z" />,
       },
+      {
+        href: '/dashboard/value',
+        key: 'value',
+        icon: <Icon d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />,
+      },
     ],
   },
   {

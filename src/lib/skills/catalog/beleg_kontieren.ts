@@ -95,6 +95,13 @@ export const belegKontieren: SkillDef = {
       // Guardrail (Betrag > 1.000 € ⇒ erst nach menschlicher Freigabe).
       name: 'verbucht',
       acts: true,
+      // Probelauf-Vorschau (read-only): WAS gebucht würde, ohne es zu tun.
+      describeEffect: ({ input, state }) => ({
+        wirkung: 'Would post the receipt (simulated DATEV booking)',
+        konto: state.konto_vorgeschlagen?.konto ?? null,
+        buchungssatz: state.buchung_vorbereitet?.buchungssatz ?? null,
+        betragEur: typeof input.betragEur === 'number' ? input.betragEur : null,
+      }),
       run: async ({ input, state }) => {
         const { betragEur } = parseInput(input);
         return {
