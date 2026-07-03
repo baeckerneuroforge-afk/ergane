@@ -66,6 +66,7 @@ export const en = {
       rejected: 'rejected',
     },
     actor: { human: 'Human', agent: 'Agent' },
+    mode: { live: 'Live', simulation: 'Dry run' },
   },
 
   overview: {
@@ -177,6 +178,10 @@ export const en = {
       'Skills are declared workflows of the engine: reading steps run freely, acting steps sit behind a guardrail and human approval.',
     acts: 'acts',
     readsOnly: 'reads only',
+    dryRun: {
+      toggle: 'Dry run — nothing is executed',
+      hint: 'All steps and guardrail checks still run; acting steps are only simulated.',
+    },
     guardrail: {
       policyAlways: 'Approval: always required (policy)',
       policyThreshold: (amount: string) => `Approval from ${amount} (policy)`,
@@ -219,6 +224,7 @@ export const en = {
     emptyHintPrefix: 'Start a skill under',
     emptyHintSuffix: '— every run appears here with its status and step timeline.',
     startedAt: 'Started at',
+    simulation: 'Dry run',
   },
 
   runDetail: {
@@ -235,6 +241,14 @@ export const en = {
     decidedAt: 'at',
     result: 'Result',
     noResult: 'No result yet — the run has not completed.',
+    simulation: {
+      bannerTitle: 'Dry run — nothing was executed',
+      bannerBody:
+        'This was a simulation: all steps and guardrail checks ran, but every acting step was only simulated — nothing left the system.',
+      stepBadge: 'simulated',
+      wouldRequireApproval: 'Would require approval:',
+      wouldExecuteNote: 'Acting step — simulated, not executed.',
+    },
   },
 
   approvals: {

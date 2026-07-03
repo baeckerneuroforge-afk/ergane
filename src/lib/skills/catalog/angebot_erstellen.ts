@@ -161,6 +161,19 @@ export const angebotErstellen: SkillDef = {
       // nach menschlicher Freigabe (Guardrail triggert immer).
       name: 'versendet',
       acts: true,
+      // Probelauf-Vorschau (read-only): WAS versendet würde, ohne Versand.
+      describeEffect: ({ input }) => {
+        const email = emailAusInput(input);
+        return {
+          wirkung: email
+            ? `Would send the quote by e-mail to ${email} (PDF attached)`
+            : 'Would record a simulated send (no recipient e-mail provided)',
+          empfaenger: typeof input.kunde === 'string' ? input.kunde : null,
+          empfaengerEmail: email,
+          betragEur: typeof input.betragEur === 'number' ? input.betragEur : null,
+          wuerdeEchtVersenden: Boolean(email),
+        };
+      },
       run: async ({ orgId, tx, input, state }) => {
         const { kunde, leistung, betragEur } = parseInput(input);
         const email = emailAusInput(input);

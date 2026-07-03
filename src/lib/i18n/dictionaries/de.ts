@@ -67,6 +67,7 @@ export const de: Dictionary = {
       rejected: 'abgelehnt',
     },
     actor: { human: 'Mensch', agent: 'Agent' },
+    mode: { live: 'Live', simulation: 'Probelauf' },
   },
 
   overview: {
@@ -178,6 +179,10 @@ export const de: Dictionary = {
       'Skills sind deklarierte Abläufe der Engine: lesende Schritte laufen frei, handelnde Schritte stehen hinter Guardrail und menschlicher Freigabe.',
     acts: 'handelt',
     readsOnly: 'liest nur',
+    dryRun: {
+      toggle: 'Probelauf — nichts wird ausgeführt',
+      hint: 'Alle Schritte und Guardrail-Prüfungen laufen weiterhin; handelnde Schritte werden nur simuliert.',
+    },
     guardrail: {
       policyAlways: 'Freigabe: immer erforderlich (Policy)',
       policyThreshold: (amount: string) => `Freigabe ab ${amount} (Policy)`,
@@ -220,6 +225,7 @@ export const de: Dictionary = {
     emptyHintPrefix: 'Starte einen Skill unter',
     emptyHintSuffix: '— jeder Lauf erscheint hier mit Status und Schritt-Timeline.',
     startedAt: 'Gestartet am',
+    simulation: 'Probelauf',
   },
 
   runDetail: {
@@ -236,6 +242,14 @@ export const de: Dictionary = {
     decidedAt: 'am',
     result: 'Ergebnis',
     noResult: 'Noch kein Ergebnis — der Run ist nicht abgeschlossen.',
+    simulation: {
+      bannerTitle: 'Testlauf — nichts wurde ausgeführt',
+      bannerBody:
+        'Dies war ein Probelauf: alle Schritte und Guardrail-Prüfungen liefen, aber jeder handelnde Schritt wurde nur simuliert — nichts hat das System verlassen.',
+      stepBadge: 'simuliert',
+      wouldRequireApproval: 'Würde Freigabe erfordern:',
+      wouldExecuteNote: 'Handelnder Schritt — simuliert, nicht ausgeführt.',
+    },
   },
 
   approvals: {

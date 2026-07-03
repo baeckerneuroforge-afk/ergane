@@ -65,6 +65,14 @@ export function ActorChip({ actorType, locale }: { actorType: ActorType; locale:
   );
 }
 
+/** Marks a run as a dry-run ("Probelauf") — a simulation, never a real
+ * execution. Used in the run list and the run detail header. */
+export function SimulationBadge({ locale }: { locale: Locale }) {
+  return (
+    <span className="chip chip--dot chip--sim">{getDictionary(locale).status.mode.simulation}</span>
+  );
+}
+
 /** Monetary amount of a run input (beleg_kontieren convention), if present. */
 export function amountOfInput(input: unknown): number | null {
   if (input && typeof input === 'object' && 'betragEur' in input) {

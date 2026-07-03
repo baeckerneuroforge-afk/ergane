@@ -90,7 +90,11 @@ export async function startSkillRun(formData: FormData) {
   // (Disclosure). Serverseitig gesetzt, überschreibt jeden Client-Wert.
   input = { ...input, rolle: role };
 
-  const handle = await startRun(orgId, skill.key, input);
+  // "Probelauf"-Toggle: gesetzt ⇒ Simulation (Guardrails laufen, acts-Steps
+  // werden nur simuliert, nichts verlässt das System).
+  const mode = formData.get('dryRun') ? 'simulation' : 'live';
+
+  const handle = await startRun(orgId, skill.key, input, { mode });
 
   // Refresh the shell (approvals badge) + list views.
   revalidatePath('/dashboard', 'layout');

@@ -46,7 +46,11 @@ export default async function DashboardPage() {
       const documents = await tx.document.count();
       return {
         documentCount: documents,
-        runsLast7d: await tx.skillRun.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+        // Value/activity KPI: count only LIVE runs — a dry-run (simulation) is
+        // never a real execution and must not inflate this figure.
+        runsLast7d: await tx.skillRun.count({
+          where: { mode: 'live', createdAt: { gte: sevenDaysAgo } },
+        }),
         pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
         recentAudit: await tx.auditLog.findMany({
           // The overview row shows time/action/actor only — skip `detail` (JSON).
