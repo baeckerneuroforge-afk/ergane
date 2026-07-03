@@ -11,6 +11,7 @@
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev",
     "build": "next build",
+    "vercel-build": "sh scripts/vercel-build.sh",
     "start": "next start",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
