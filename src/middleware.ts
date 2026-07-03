@@ -16,6 +16,10 @@ const isPublicRoute = createRouteMatcher([
   '/impressum',
   '/datenschutz',
   '/avv',
+  // English versions of the legal pages (platform default language).
+  '/imprint',
+  '/privacy',
+  '/dpa',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/slack(.*)',

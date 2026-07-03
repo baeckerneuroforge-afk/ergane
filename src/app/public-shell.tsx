@@ -1,18 +1,29 @@
 // Gemeinsamer Rahmen der ÖFFENTLICHEN Seiten (Landing + Rechtsseiten):
-// schlanker Header mit Login-CTA, Inhalt, Footer mit Pflicht-Links.
-// Bewusst ohne Dashboard-Chrome — diese Seiten sieht man vor dem Login.
+// schlanker Header mit Login-CTA + Sprach-Umschalter, Inhalt, Footer mit
+// Pflicht-Links. Bewusst ohne Dashboard-Chrome — diese Seiten sieht man vor
+// dem Login. Sprache: UI-Cookie (Default Englisch); die Footer-Links zeigen
+// je Sprache auf die passende Fassung der Rechtstexte.
 import Link from 'next/link';
+import { getI18n } from '@/lib/i18n/server';
+import { LanguageSwitcher } from './language-switcher';
 
-export function PublicShell({ children }: { children: React.ReactNode }) {
+export async function PublicShell({ children }: { children: React.ReactNode }) {
+  const { locale, t } = await getI18n();
+  const legal =
+    locale === 'de'
+      ? { imprint: '/impressum', privacy: '/datenschutz', dpa: '/avv' }
+      : { imprint: '/imprint', privacy: '/privacy', dpa: '/dpa' };
+
   return (
     <div className="public-page">
       <header className="public-header">
         <Link href="/" className="public-logo">
           ergane
         </Link>
-        <nav>
+        <nav style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+          <LanguageSwitcher />
           <Link href="/sign-in" className="btn btn--primary">
-            Anmelden
+            {t.publicShell.signIn}
           </Link>
         </nav>
       </header>
@@ -20,9 +31,9 @@ export function PublicShell({ children }: { children: React.ReactNode }) {
       <footer className="public-footer">
         <span className="muted">© {new Date().getFullYear()} ergane</span>
         <nav className="public-footer-links">
-          <Link href="/impressum">Impressum</Link>
-          <Link href="/datenschutz">Datenschutz</Link>
-          <Link href="/avv">AV-Vertrag</Link>
+          <Link href={legal.imprint}>{t.publicShell.imprint}</Link>
+          <Link href={legal.privacy}>{t.publicShell.privacy}</Link>
+          <Link href={legal.dpa}>{t.publicShell.dpa}</Link>
         </nav>
       </footer>
     </div>
