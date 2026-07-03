@@ -39,6 +39,15 @@ export interface StepDef {
   acts?: boolean;
   /** Executes the step; the returned detail is persisted on the skill_step row. */
   run: (ctx: SkillContext) => Promise<SkillJson>;
+  /**
+   * OPTIONAL, only meaningful for acting steps: a READ-ONLY preview of the
+   * outward effect this step WOULD have, used by a dry-run (mode='simulation')
+   * to show "what would happen" without executing it. It MUST NOT cause any
+   * real-world effect (no sending, no external writes) — it only derives a
+   * human-readable description from ctx.input/ctx.state (reads via ctx.tx are
+   * allowed). When absent, the engine records a generic simulated-step detail.
+   */
+  describeEffect?: (ctx: SkillContext) => Promise<SkillJson> | SkillJson;
 }
 
 export interface GuardrailResult {

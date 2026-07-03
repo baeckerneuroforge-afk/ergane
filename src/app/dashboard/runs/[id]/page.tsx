@@ -5,7 +5,14 @@ import { getI18n } from '@/lib/i18n/server';
 import { getSkill } from '@/lib/skills';
 import { withTenant } from '@/lib/tenant';
 import { isUuid } from '@/lib/uuid';
-import { JsonView, RunStatusChip, amountOfInput, formatDateTime, formatEuro } from '../../ui';
+import {
+  JsonView,
+  RunStatusChip,
+  SimulationBadge,
+  amountOfInput,
+  formatDateTime,
+  formatEuro,
+} from '../../ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +51,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const { orgId } = await requireTenant();
   const { locale, t } = await getI18n();
   const r = t.runDetail;
+  const sim = r.simulation;
 
   const { run, steps, approvals } = await withTenant(orgId, async (tx) => ({
     // RLS scopes to the tenant — a foreign run id is simply "not found".
@@ -74,6 +82,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             <span className="mono">{run.skillKey}</span>
           </h2>
           <RunStatusChip status={run.status} locale={locale} />
+          {run.mode === 'simulation' ? <SimulationBadge locale={locale} /> : null}
         </div>
         <div className="row-meta">
           <span className="mono">{run.id}</span> · {r.started} {formatDateTime(run.createdAt, locale)}
@@ -85,6 +94,13 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           ) : null}
         </div>
       </section>
+
+      {run.mode === 'simulation' ? (
+        <section className="card card--sim">
+          <strong>{sim.bannerTitle}</strong>
+          <div style={{ marginTop: '0.3rem' }}>{sim.bannerBody}</div>
+        </section>
+      ) : null}
 
       {pendingApproval ? (
         <section className="card card--awaiting">
@@ -101,10 +117,25 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           {declaredSteps.map((name, idx) => {
             const step = stepByIdx.get(idx);
             const status = step ? (step.status === 'done' ? 'done' : 'failed') : 'pending';
+            // Dry-run: an acting step recorded as simulated (never executed).
+            const detail = (step?.detail ?? null) as Record<string, unknown> | null;
+            const simulated = !!detail && detail.simulated === true;
             return (
               <li key={`${idx}-${name}`}>
                 <TimelineDot status={status} labels={dotLabels} />
                 <div className="tl-name">{name}</div>
+                {simulated ? (
+                  <div className="row-meta" style={{ marginTop: '0.15rem' }}>
+                    <span className="chip chip--sim">{sim.stepBadge}</span>{' '}
+                    {detail.wouldRequireApproval ? (
+                      <>
+                        <strong>{sim.wouldRequireApproval}</strong> {String(detail.gateReason ?? '')}
+                      </>
+                    ) : (
+                      sim.wouldExecuteNote
+                    )}
+                  </div>
+                ) : null}
                 {step?.detail != null ? (
                   <details className="json-details">
                     <summary>{t.common.detail}</summary>

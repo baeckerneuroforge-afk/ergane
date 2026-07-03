@@ -173,6 +173,19 @@ export const rechnungErstellen: SkillDef = {
       // Betrag-Guardrail (Summe > 1.000 € ⇒ erst nach menschlicher Freigabe).
       name: 'gebucht_versendet',
       acts: true,
+      // Probelauf-Vorschau (read-only): WAS gebucht/versendet würde, ohne Wirkung.
+      describeEffect: ({ input }) => {
+        const email = emailAusInput(input);
+        return {
+          wirkung: email
+            ? `Would post the invoice and send it by e-mail to ${email} (PDF attached)`
+            : 'Would post the invoice and record a simulated send (no recipient e-mail)',
+          empfaenger: typeof input.kunde === 'string' ? input.kunde : null,
+          empfaengerEmail: email,
+          summeEur: summeOf(input),
+          wuerdeEchtVersenden: Boolean(email),
+        };
+      },
       run: async ({ orgId, tx, input, state }) => {
         const { kunde, positionen, summeEur } = parseInput(input);
         const email = emailAusInput(input);

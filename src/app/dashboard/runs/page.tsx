@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { getI18n } from '@/lib/i18n/server';
 import { withTenant } from '@/lib/tenant';
-import { RunStatusChip, amountOfInput, formatDateTime, formatEuro } from '../ui';
+import { RunStatusChip, SimulationBadge, amountOfInput, formatDateTime, formatEuro } from '../ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export default async function RunsPage() {
   // pull 100 of them over the wire for a table of four columns.
   const runs = await withTenant(orgId, (tx) =>
     tx.skillRun.findMany({
-      select: { id: true, skillKey: true, status: true, input: true, createdAt: true },
+      select: { id: true, skillKey: true, status: true, mode: true, input: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
       take: 100,
     }),
@@ -57,7 +57,10 @@ export default async function RunsPage() {
                     </td>
                     <td className="mono">{amount !== null ? formatEuro(amount, locale) : '—'}</td>
                     <td>
-                      <RunStatusChip status={run.status} locale={locale} />
+                      <span style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        <RunStatusChip status={run.status} locale={locale} />
+                        {run.mode === 'simulation' ? <SimulationBadge locale={locale} /> : null}
+                      </span>
                     </td>
                     <td className="mono row-meta" style={{ whiteSpace: 'nowrap' }}>
                       {formatDateTime(run.createdAt, locale)}

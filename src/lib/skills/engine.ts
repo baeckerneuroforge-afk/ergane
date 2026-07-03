@@ -45,14 +45,25 @@
 // case) keep the pre-policy behavior. Policies act only WITHIN the tenant —
 // they are read through withTenant(), so tenant B's policies can never
 // influence tenant A.
-import { Prisma, type Role, type SkillRun } from '@prisma/client';
+//
+// Dry-run (mode='simulation', "Probelauf"): a run started with mode 'simulation'
+// walks EVERY step exactly like a live run — retrieval, context building,
+// guardrail evaluation and the approval-need check all run and are recorded —
+// but each ACTING step is SIMULATED instead of executed (recordSimulatedStep):
+// no effect fires and the run NEVER pauses in awaiting_approval. Instead the
+// simulated step captures what WOULD happen, including whether an approval
+// would be required and why (so the money failsafe stays visible). A simulation
+// therefore always ends in completed/failed, never awaiting_approval, and is
+// marked mode='simulation' on the run + audit so it is never mistaken for — or
+// counted as — a real execution.
+import { Prisma, type Role, type SkillRun, type SkillRunMode } from '@prisma/client';
 import { logAudit } from '../audit';
 import { assertWithinDailyLimit } from '../limits';
 import { getMemberRole, roleSatisfies } from '../policies';
 import { withTenant } from '../tenant';
 import { getSkill } from './catalog';
 import { notifyApprovalRequested } from './notify';
-import type { SkillDef, SkillJson } from './types';
+import type { SkillDef, SkillJson, StepDef } from './types';
 
 export interface RunHandle {
   runId: string;
@@ -65,22 +76,41 @@ function asJson(value: SkillJson): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
+/** Options for a run. */
+export interface StartRunOptions {
+  /**
+   * 'live' (default) = real execution. 'simulation' = dry-run ("Probelauf"):
+   * guardrails and the approval-need check still run and are recorded, but every
+   * acting step is SIMULATED instead of executed — nothing leaves the system and
+   * the run never pauses in awaiting_approval.
+   */
+  mode?: SkillRunMode;
+}
+
 /**
  * Start a new run of `skillKey` for the tenant and execute steps until the run
  * completes, fails, or pauses at the guardrail (awaiting_approval).
+ *
+ * In a dry-run (opts.mode='simulation') acting steps never execute and the run
+ * never pauses: it walks every step, records what WOULD happen (including
+ * whether an approval would be required, and why), and ends completed/failed.
  */
 export async function startRun(
   orgId: string,
   skillKey: string,
   input: SkillJson,
+  opts: StartRunOptions = {},
 ): Promise<RunHandle> {
   const skill = getSkill(skillKey);
+  const mode: SkillRunMode = opts.mode ?? 'live';
 
   const run = await withTenant(orgId, async (tx) => {
     // Kostenschutz: Tageslimit für Skill-Läufe (weiches Limit, siehe limits.ts).
+    // Ein Probelauf zählt bewusst mit — er verursacht dieselben Lese-/LLM-Kosten
+    // wie ein Live-Lauf; nur die WIRKENDEN Schritte entfallen.
     await assertWithinDailyLimit(tx, 'run');
     const created = await tx.skillRun.create({
-      data: { orgId, skillKey: skill.key, status: 'running', input: asJson(input) },
+      data: { orgId, skillKey: skill.key, status: 'running', mode, input: asJson(input) },
     });
     await logAudit(tx, {
       orgId,
@@ -88,11 +118,14 @@ export async function startRun(
       actorType: 'agent',
       action: 'skill.started',
       target: `${skill.key}:${created.id}`,
+      // Live bleibt unverändert (kein detail); ein Probelauf ist im Audit klar
+      // als solcher markiert (mode='simulation').
+      detail: mode === 'simulation' ? { mode } : undefined,
     });
     return created;
   });
 
-  return executeFrom(orgId, skill, run.id, input, 0, {});
+  return executeFrom(orgId, skill, run.id, input, 0, {}, mode);
 }
 
 /**
@@ -104,8 +137,8 @@ export async function approve(
   runId: string,
   decidedBy: string,
 ): Promise<RunHandle> {
-  const { skill, input, doneCount, state } = await decide(orgId, runId, decidedBy, 'approved');
-  return executeFrom(orgId, skill, runId, input, doneCount, state);
+  const { skill, input, doneCount, state, mode } = await decide(orgId, runId, decidedBy, 'approved');
+  return executeFrom(orgId, skill, runId, input, doneCount, state, mode);
 }
 
 /**
@@ -182,6 +215,9 @@ async function decide(
       input: run.input as SkillJson,
       doneCount: doneSteps.length,
       state,
+      // A simulation never reaches awaiting_approval, so a resumed run is always
+      // 'live' — reading it from the row keeps that correct rather than assumed.
+      mode: run.mode,
     };
   });
 }
@@ -284,8 +320,10 @@ async function actingStepCleared(
   return { ...skillDefaultGate(skill, input), requiredRole: null };
 }
 
-/** Execute steps starting at `startIdx`; pauses at the guardrail, completes,
- * or fails. Each step runs in its own withTenant transaction. */
+/** Execute steps starting at `startIdx`; pauses at the guardrail (live only),
+ * completes, or fails. Each step runs in its own withTenant transaction. In
+ * mode='simulation' acting steps are simulated (recordSimulatedStep), the run
+ * never pauses, and it always ends completed/failed. */
 async function executeFrom(
   orgId: string,
   skill: SkillDef,
@@ -293,12 +331,23 @@ async function executeFrom(
   input: SkillJson,
   startIdx: number,
   state: Record<string, SkillJson>,
+  mode: SkillRunMode,
 ): Promise<RunHandle> {
   for (let idx = startIdx; idx < skill.steps.length; idx++) {
     const step = skill.steps[idx];
 
     if (step.acts) {
+      // Guardrail + approval-need are evaluated in BOTH modes — a dry-run must
+      // hit exactly the gate a live run would (including the money failsafe).
       const gate = await actingStepCleared(orgId, skill, runId, input);
+
+      if (mode === 'simulation') {
+        // DRY-RUN: never execute the effect, never pause. Record what WOULD
+        // happen (incl. whether approval would be required, and why) and move on.
+        await recordSimulatedStep(orgId, skill, runId, idx, step, input, state, gate);
+        continue;
+      }
+
       if (!gate.cleared) {
         await withTenant(orgId, async (tx) => {
           await tx.skillRun.update({
@@ -370,6 +419,7 @@ async function executeFrom(
           actorType: 'agent',
           action: 'skill.failed',
           target: `${skill.key}:${step.name}`,
+          detail: mode === 'simulation' ? { mode } : undefined,
         });
       });
       return { runId, status: 'failed' };
@@ -387,7 +437,63 @@ async function executeFrom(
       actorType: 'agent',
       action: 'skill.completed',
       target: `${skill.key}:${runId}`,
+      detail: mode === 'simulation' ? { mode } : undefined,
     });
   });
   return { runId, status: 'completed' };
+}
+
+/**
+ * DRY-RUN only: record an acting step as SIMULATED — evaluated, never executed.
+ * Captures the guardrail/approval verdict (would it require approval? why? which
+ * role?) and, if the skill provides a `describeEffect`, a read-only preview of
+ * what the effect WOULD do. Its own atomic transaction, like every other step;
+ * `describeEffect` is best-effort so a broken preview can never turn a safe
+ * dry-run into a failure. Never fires an effect and never creates an approval.
+ */
+async function recordSimulatedStep(
+  orgId: string,
+  skill: SkillDef,
+  runId: string,
+  idx: number,
+  step: StepDef,
+  input: SkillJson,
+  state: Record<string, SkillJson>,
+  gate: GateVerdict,
+): Promise<void> {
+  await withTenant(orgId, async (tx) => {
+    let effectPreview: SkillJson | null = null;
+    if (step.describeEffect) {
+      try {
+        effectPreview = await step.describeEffect({ orgId, tx, input, state });
+      } catch (err) {
+        effectPreview = { previewError: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    const detail: SkillJson = {
+      simulated: true,
+      acts: true,
+      // The heart of the "Probelauf": the SAME gate a live run would face.
+      wouldRequireApproval: !gate.cleared,
+      gateReason: gate.reason,
+      ...(gate.requiredRole ? { wouldRequireRole: gate.requiredRole } : {}),
+      ...(effectPreview ? { effectPreview } : {}),
+    };
+    state[step.name] = detail;
+    await tx.skillStep.create({
+      data: { orgId, runId, idx, name: step.name, status: 'done', detail: asJson(detail) },
+    });
+    await logAudit(tx, {
+      orgId,
+      actorId: ENGINE_ACTOR,
+      actorType: 'agent',
+      action: 'skill.simulated_act',
+      target: `${skill.key}:${step.name}`,
+      detail: {
+        mode: 'simulation',
+        wouldRequireApproval: !gate.cleared,
+        reason: gate.reason,
+      },
+    });
+  });
 }

@@ -18,6 +18,7 @@ import {
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
 import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
+import { setValueSettings } from '@/lib/value';
 
 const MODES: ApprovalMode[] = ['always', 'threshold', 'never'];
 const APPROVER_ROLES: Role[] = ['lead', 'admin'];
@@ -172,6 +173,37 @@ export async function saveCompanyProfile(formData: FormData) {
   });
 
   revalidatePath('/dashboard/settings');
+}
+
+// -----------------------------------------------------------------------------
+// Wert-Annahmen (Admin-Gate + Audit in src/lib/value.ts)
+// -----------------------------------------------------------------------------
+
+export async function saveValueSettings(formData: FormData) {
+  const hourlyRateUsd = Number.parseFloat(
+    String(formData.get('hourlyRateUsd') ?? '').replace(',', '.'),
+  );
+  if (!Number.isFinite(hourlyRateUsd) || hourlyRateUsd <= 0) {
+    throw new Error('Hourly rate (USD) must be a positive number.');
+  }
+
+  const minutesPerSkill: Record<string, number> = {};
+  for (const skill of listSkills()) {
+    const raw = String(formData.get(`minutes:${skill.key}`) ?? '').trim();
+    if (raw === '') continue; // empty = keep the code default
+    const minutes = Number.parseFloat(raw.replace(',', '.'));
+    if (!Number.isFinite(minutes) || minutes < 0) {
+      throw new Error(`Minutes saved for ${JSON.stringify(skill.key)} must be a number ≥ 0.`);
+    }
+    minutesPerSkill[skill.key] = minutes;
+  }
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await setValueSettings({ orgId, actorUserId: userId, hourlyRateUsd, minutesPerSkill });
+
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/value');
+  revalidatePath('/dashboard');
 }
 
 export async function saveOrgLocale(formData: FormData) {
