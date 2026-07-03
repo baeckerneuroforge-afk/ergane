@@ -12,13 +12,15 @@
 // header from the middleware-rewritten request and applies the nonce to its
 // own inline runtime scripts). 'strict-dynamic' lets nonce-approved scripts
 // (Next runtime, Clerk loader) load their legitimate children.
-// Web Crypto instead of node:crypto: this module is imported by the
-// middleware, whose edge bundle cannot resolve `node:` schemes — with
-// node:crypto the production build fails outright.
+// Web Crypto instead of node:crypto: this file runs in the middleware, which
+// may execute in the Edge runtime where node:crypto is not bundleable.
 export function generateCspNonce(): string {
-  const bytes = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes));
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 /** Clerk needs its frontend API + assets; everything else stays 'self'. */
