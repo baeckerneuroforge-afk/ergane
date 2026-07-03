@@ -381,7 +381,7 @@ describe('slack user → role (gate 3) and disclosure via Slack', () => {
     expect(res.status).toBe(200);
     await drainDeferredWork();
     expect(posted[0]!.text).toContain(NO_KNOWLEDGE_ANSWER);
-    expect(posted[0]!.text).not.toContain('95000');
+    expect(posted[0]!.text).not.toMatch(/95[\s.,]?000/); // Leak-Check: auch formatiert (95.000) darf nichts durchsickern
   });
 
   it('a linked MEMBER (no grant) gets no confidential knowledge either', async () => {
@@ -392,7 +392,7 @@ describe('slack user → role (gate 3) and disclosure via Slack', () => {
     await drainDeferredWork();
     const answer = posted.find((m) => !m.ephemeralUserId);
     expect(answer?.text).toContain(NO_KNOWLEDGE_ANSWER);
-    expect(answer?.text).not.toContain('95000');
+    expect(answer?.text).not.toMatch(/95[\s.,]?000/); // Leak-Check: auch formatiert (95.000) darf nichts durchsickern
   });
 
   it('a linked LEAD (grant for confidential) gets the confidential answer', async () => {
@@ -402,7 +402,7 @@ describe('slack user → role (gate 3) and disclosure via Slack', () => {
     expect(res.status).toBe(200);
     await drainDeferredWork();
     const answer = posted.find((m) => !m.ephemeralUserId);
-    expect(answer?.text).toContain('95000');
+    expect(answer?.text).toMatch(/95[\s.,]?000/); // LLM formatiert Zahlen mal mit, mal ohne Tausenderzeichen
     expect(answer?.text).toContain(`${SOURCES_MARKER} Gehaltsbänder`);
   });
 
