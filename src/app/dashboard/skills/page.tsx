@@ -1,6 +1,6 @@
 import type { ApprovalPolicy } from '@prisma/client';
 import { requireTenant } from '@/lib/auth-context';
-import { getApprovalPolicy } from '@/lib/policies';
+import { getApprovalPolicies } from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
 import { GUARDRAIL_LIMIT_EUR } from '@/lib/skills/catalog/beleg_kontieren';
 import { RECHNUNG_GUARDRAIL_LIMIT_EUR } from '@/lib/skills/catalog/rechnung_erstellen';
@@ -39,7 +39,8 @@ function guardrailInfo(skill: SkillDef, policy: ApprovalPolicy | null): string {
 export default async function SkillsPage() {
   const { orgId } = await requireTenant();
   const skills = listSkills();
-  const policies = await Promise.all(skills.map((s) => getApprovalPolicy(orgId, s.key)));
+  // One tenant transaction for all policies instead of one per skill.
+  const policies = await getApprovalPolicies(orgId, skills.map((s) => s.key));
 
   return (
     <>
@@ -49,7 +50,7 @@ export default async function SkillsPage() {
       </p>
 
       <div className="quick-grid">
-        {skills.map((skill, i) => {
+        {skills.map((skill) => {
           const acts = skill.steps.some((s) => s.acts);
           return (
             <section className="card" key={skill.key} style={{ display: 'grid', gap: '0.6rem' }}>
@@ -62,7 +63,7 @@ export default async function SkillsPage() {
               <div>
                 <span className="chip">{skill.key}</span>
               </div>
-              <div className="row-meta">{guardrailInfo(skill, policies[i])}</div>
+              <div className="row-meta">{guardrailInfo(skill, policies.get(skill.key) ?? null)}</div>
 
               <form action={startSkillRun} style={{ marginTop: '0.4rem' }}>
                 <input type="hidden" name="skillKey" value={skill.key} />

@@ -8,8 +8,14 @@ export const dynamic = 'force-dynamic';
 export default async function RunsPage() {
   const { orgId } = await requireTenant();
 
+  // select: the list never shows `result` (can be a large JSON blob) — don't
+  // pull 100 of them over the wire for a table of four columns.
   const runs = await withTenant(orgId, (tx) =>
-    tx.skillRun.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
+    tx.skillRun.findMany({
+      select: { id: true, skillKey: true, status: true, input: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    }),
   );
 
   return (

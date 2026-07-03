@@ -16,7 +16,12 @@ export default async function DashboardPage() {
       documentCount: await tx.document.count(),
       runsLast7d: await tx.skillRun.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
       pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
-      recentAudit: await tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
+      recentAudit: await tx.auditLog.findMany({
+        // The overview row shows time/action/actor only — skip `detail` (JSON).
+        select: { id: true, createdAt: true, action: true, actorType: true },
+        orderBy: { createdAt: 'desc' },
+        take: 8,
+      }),
     }),
   );
   const skillCount = listSkills().length;
