@@ -10,6 +10,7 @@ import type { DocumentSource, DocumentVisibility } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { getEmbeddingProvider, EMBEDDING_DIMENSIONS, type EmbeddingProvider } from '../ai';
 import { logAudit } from '../audit';
+import { assertWithinDailyLimit } from '../limits';
 import { withTenant } from '../tenant';
 import { chunkText } from './chunking';
 
@@ -78,6 +79,9 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
 
   const contents = chunkText(text);
   if (contents.length === 0) throw new Error('ingestDocument: text produced no chunks.');
+
+  // Kostenschutz VOR dem ersten bezahlten Aufruf (Embeddings).
+  await withTenant(input.orgId, (tx) => assertWithinDailyLimit(tx, 'ingest'));
 
   const embedder = input.embedder ?? getEmbeddingProvider();
   const vectors = await embedder.embed(contents, 'document');
