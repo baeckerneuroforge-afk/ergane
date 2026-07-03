@@ -47,6 +47,7 @@
 // influence tenant A.
 import { Prisma, type Role, type SkillRun } from '@prisma/client';
 import { logAudit } from '../audit';
+import { assertWithinDailyLimit } from '../limits';
 import { getMemberRole, roleSatisfies } from '../policies';
 import { withTenant } from '../tenant';
 import { getSkill } from './catalog';
@@ -76,6 +77,8 @@ export async function startRun(
   const skill = getSkill(skillKey);
 
   const run = await withTenant(orgId, async (tx) => {
+    // Kostenschutz: Tageslimit für Skill-Läufe (weiches Limit, siehe limits.ts).
+    await assertWithinDailyLimit(tx, 'run');
     const created = await tx.skillRun.create({
       data: { orgId, skillKey: skill.key, status: 'running', input: asJson(input) },
     });

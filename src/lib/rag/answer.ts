@@ -16,6 +16,7 @@ import {
   type EmbeddingProvider,
 } from '../ai';
 import { logAudit } from '../audit';
+import { assertWithinDailyLimit } from '../limits';
 import { withTenant } from '../tenant';
 import { retrieve, type RetrievedChunk } from './retrieve';
 
@@ -103,6 +104,9 @@ function stripModelSourceLines(text: string): string {
 export async function answerQuestion(input: AnswerQuestionInput): Promise<AnswerQuestionResult> {
   const question = input.question.trim();
   if (!question) throw new Error('answerQuestion: question is required.');
+
+  // Kostenschutz VOR dem ersten bezahlten Aufruf (Embedding/LLM).
+  await withTenant(input.orgId, (tx) => assertWithinDailyLimit(tx, 'chat'));
 
   const embedder = input.embedder ?? getEmbeddingProvider();
   const retrieved = await retrieve({
