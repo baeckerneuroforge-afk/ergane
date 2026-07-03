@@ -139,6 +139,46 @@ export async function setApprovalPolicy(input: SetApprovalPolicyInput): Promise<
 }
 
 // -----------------------------------------------------------------------------
+// Approval notifications (org_settings.approval_notify_email)
+// -----------------------------------------------------------------------------
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export interface SetApprovalNotifyEmailInput {
+  orgId: string;
+  actorUserId: string;
+  /** null/'' = Benachrichtigungen aus. */
+  email: string | null;
+}
+
+/** Adresse für "Freigabe wartet"-Mails (z. B. Team-Alias). Admin-only,
+ * auditiert mit {old,new} — gleiches Muster wie setChatRetention. */
+export async function setApprovalNotifyEmail(input: SetApprovalNotifyEmailInput): Promise<void> {
+  const email = input.email?.trim() || null;
+  if (email !== null && (email.length > 320 || !EMAIL_RE.test(email))) {
+    throw new Error('Benachrichtigungs-Adresse muss eine gültige E-Mail-Adresse sein.');
+  }
+
+  await withTenant(input.orgId, async (tx) => {
+    await requireAdmin(tx, input.orgId, input.actorUserId);
+    const old = await tx.orgSettings.findUnique({ where: { orgId: input.orgId } });
+    await tx.orgSettings.upsert({
+      where: { orgId: input.orgId },
+      create: { orgId: input.orgId, approvalNotifyEmail: email },
+      update: { approvalNotifyEmail: email },
+    });
+    await logAudit(tx, {
+      orgId: input.orgId,
+      actorId: input.actorUserId,
+      actorType: 'human',
+      action: 'policy.changed',
+      target: 'org_settings:approval_notify_email',
+      detail: { old: old?.approvalNotifyEmail ?? null, new: email },
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Disclosure policies (document visibility + grants)
 // -----------------------------------------------------------------------------
 

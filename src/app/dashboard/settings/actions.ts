@@ -9,7 +9,12 @@ import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { setCompanyProfile } from '@/lib/company';
-import { setApprovalPolicy, setMembershipRole, setVisibilityGrant } from '@/lib/policies';
+import {
+  setApprovalNotifyEmail,
+  setApprovalPolicy,
+  setMembershipRole,
+  setVisibilityGrant,
+} from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
 import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
@@ -130,6 +135,16 @@ export async function removeSlackUserLink(formData: FormData) {
 
   const { orgId, userId } = await requireTenantWithMembership();
   await unlinkSlackUser({ orgId, actorUserId: userId, slackUserId });
+
+  revalidatePath('/dashboard/settings');
+}
+
+export async function saveApprovalNotifyEmail(formData: FormData) {
+  const raw = formData.get('notifyEmail');
+  const email = typeof raw === 'string' ? raw : null;
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await setApprovalNotifyEmail({ orgId, actorUserId: userId, email });
 
   revalidatePath('/dashboard/settings');
 }

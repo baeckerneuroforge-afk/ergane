@@ -13,6 +13,7 @@ import { VisibilityBadge, formatEuro } from '../ui';
 import {
   eraseOrganization,
   purgeChat,
+  saveApprovalNotifyEmail,
   saveChatRetention,
   saveCompanyProfile,
   removeSlackUserLink,
@@ -105,6 +106,29 @@ export default async function SettingsPage({
       </nav>
 
       {tab === 'freigaben' ? (
+        <>
+        <section className="card">
+          <h2>Benachrichtigung bei wartenden Freigaben</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Sobald ein Skill-Lauf pausiert und auf Freigabe wartet, geht eine kurze E-Mail an
+            diese Adresse (z. B. ein Team-Alias). Leer = keine Benachrichtigung. Der Versand
+            ist best-effort — die Freigabe selbst funktioniert immer auch ohne Mail.
+          </p>
+          <form action={saveApprovalNotifyEmail}>
+            <input
+              name="notifyEmail"
+              type="email"
+              maxLength={320}
+              defaultValue={orgSettings?.approvalNotifyEmail ?? ''}
+              placeholder="z. B. freigaben@firma.de"
+              className="select--inline"
+              style={{ width: '18rem' }}
+            />{' '}
+            <button type="submit" className="btn btn--primary select--inline">
+              Speichern
+            </button>
+          </form>
+        </section>
         <section className="card card--table">
           <h2 style={{ padding: '0.8rem 1.25rem 0' }}>Freigabe-Regeln pro Skill</h2>
           <p className="muted" style={{ padding: '0 1.25rem' }}>
@@ -160,6 +184,7 @@ export default async function SettingsPage({
             </tbody>
           </table>
         </section>
+        </>
       ) : null}
 
       {tab === 'sichtbarkeit' ? (

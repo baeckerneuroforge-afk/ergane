@@ -50,6 +50,7 @@ import { logAudit } from '../audit';
 import { getMemberRole, roleSatisfies } from '../policies';
 import { withTenant } from '../tenant';
 import { getSkill } from './catalog';
+import { notifyApprovalRequested } from './notify';
 import type { SkillDef, SkillJson } from './types';
 
 export interface RunHandle {
@@ -317,6 +318,15 @@ async function executeFrom(
             action: 'guardrail.triggered',
             target: `${skill.key}:${runId}: ${gate.reason}`,
           });
+        });
+        // NACH dem Commit: best-effort-Benachrichtigung (wirft nie — die
+        // Freigabe existiert bereits, mit oder ohne Mail).
+        await notifyApprovalRequested({
+          orgId,
+          runId,
+          skillKey: skill.key,
+          skillTitle: skill.title,
+          reason: gate.reason,
         });
         return { runId, status: 'awaiting_approval' };
       }
