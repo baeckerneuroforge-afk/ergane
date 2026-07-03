@@ -64,6 +64,22 @@ export async function getApprovalPolicy(
   );
 }
 
+/**
+ * All approval policies for a set of skills in ONE tenant transaction —
+ * used by the skills page instead of one getApprovalPolicy() (and thus one
+ * transaction/connection) per skill.
+ */
+export async function getApprovalPolicies(
+  orgId: string,
+  skillKeys: string[],
+): Promise<Map<string, ApprovalPolicy>> {
+  if (skillKeys.length === 0) return new Map();
+  const rows = await withTenant(orgId, (tx) =>
+    tx.approvalPolicy.findMany({ where: { skillKey: { in: skillKeys } } }),
+  );
+  return new Map(rows.map((p) => [p.skillKey, p]));
+}
+
 export interface SetApprovalPolicyInput {
   orgId: string;
   /** The human changing the policy — must hold the admin role in this org. */

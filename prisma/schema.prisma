@@ -244,7 +244,7 @@ model SkillRun {
   approvals    Approval[]
 
   @@unique([id, orgId])
-  @@index([orgId])
+  @@index([orgId, createdAt(sort: Desc)])
   @@map("skill_runs")
 }
 
@@ -284,7 +284,7 @@ model Approval {
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   run          SkillRun     @relation(fields: [runId, orgId], references: [id, orgId], onDelete: Cascade)
 
-  @@index([orgId])
+  @@index([orgId, status, createdAt])
   @@index([runId])
   @@map("approvals")
 }
@@ -344,7 +344,7 @@ model Document {
   chunks       Chunk[]
 
   @@unique([id, orgId])
-  @@index([orgId])
+  @@index([orgId, createdAt(sort: Desc)])
   @@map("documents")
 }
 
@@ -422,6 +422,7 @@ model AuditLog {
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  @@index([orgId])
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([orgId, actorId, createdAt(sort: Desc)])
   @@map("audit_log")
 }

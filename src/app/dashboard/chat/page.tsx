@@ -44,12 +44,15 @@ export default async function ChatPage() {
   ).reverse();
 
   // Feedback: the caller's own votes (active-button state) + org-wide counts.
-  const ownVotes = await getOwnFeedback(
-    orgId,
-    userId,
-    messages.filter((m) => m.role === 'assistant').map((m) => m.id),
-  );
-  const stats = await getFeedbackStats(orgId);
+  // Independent reads in separate withTenant transactions → run them in parallel.
+  const [ownVotes, stats] = await Promise.all([
+    getOwnFeedback(
+      orgId,
+      userId,
+      messages.filter((m) => m.role === 'assistant').map((m) => m.id),
+    ),
+    getFeedbackStats(orgId),
+  ]);
 
   return (
     <div className="chat-page">
