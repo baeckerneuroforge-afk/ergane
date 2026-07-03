@@ -12,7 +12,8 @@
 // PDF-Anhang über den Effekt-Provider (fake ohne RESEND_API_KEY, Resend mit).
 // Ohne email bleibt der Versand simuliert (voriges Verhalten). In beiden
 // Fällen läuft der Schritt erst NACH der menschlichen Freigabe.
-import { getEmailProvider, renderSimplePdf } from '../../effects';
+import { getCompanyProfile } from '../../company';
+import { formatEur, getEmailProvider, renderBusinessPdf } from '../../effects';
 import type { SkillDef, SkillJson } from '../types';
 import { holeWissen, rolleAusInput } from './wissen';
 
@@ -103,8 +104,8 @@ export const angebotErstellen: SkillDef = {
       // nach menschlicher Freigabe (Guardrail triggert immer).
       name: 'versendet',
       acts: true,
-      run: async ({ input, state }) => {
-        const { kunde, betragEur } = parseInput(input);
+      run: async ({ orgId, tx, input, state }) => {
+        const { kunde, leistung, betragEur } = parseInput(input);
         const email = emailAusInput(input);
         if (!email) {
           return {
@@ -115,14 +116,36 @@ export const angebotErstellen: SkillDef = {
           };
         }
 
+        // Firmendaten aus den Einstellungen → Briefkopf/Fußzeile. Leeres
+        // Profil ⇒ neutrales PDF, nichts wird erfunden.
+        const firma = await getCompanyProfile(tx, orgId);
         const entwurf = typeof state.angebot_entworfen?.entwurf === 'string'
           ? state.angebot_entworfen.entwurf
           : `Angebot für ${kunde}`;
-        const pdf = renderSimplePdf(`Angebot für ${kunde}`, entwurf.split('\n'));
+        const konditionen = entwurf
+          .split('\n')
+          .filter((z) => z.startsWith('Konditionen') || z.startsWith('- ['));
+        const pdf = renderBusinessPdf({
+          title: 'Angebot',
+          sender: firma,
+          recipient: [kunde],
+          meta: [['Datum', new Date().toLocaleDateString('de-DE')]],
+          body: [
+            'Sehr geehrte Damen und Herren,',
+            'gerne unterbreiten wir Ihnen das folgende Angebot:',
+          ],
+          positions: [{ beschreibung: leistung, betragEur }],
+          totalLabel: 'Angebotssumme',
+          closing: [
+            ...konditionen,
+            'Wir freuen uns auf Ihre Rückmeldung.',
+            `Mit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
+          ],
+        });
         const result = await getEmailProvider().send({
           to: email,
-          subject: `Ihr Angebot über ${betragEur.toFixed(2)} EUR`,
-          text: entwurf,
+          subject: `Ihr Angebot über ${formatEur(betragEur)}`,
+          text: `${entwurf}\n\nMit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
           attachment: { filename: 'angebot.pdf', content: pdf },
         });
         return {

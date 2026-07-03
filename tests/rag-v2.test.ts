@@ -167,7 +167,7 @@ describe('loadChatHistory (per actor, fail-closed)', () => {
     const leadResult = await answerQuestion({
       orgId: ORG_A, actorId: LEAD, question: 'Wie hoch ist das Gehaltsband für Senior Engineers?', role: 'lead',
     });
-    expect(leadResult.answer).toContain('95000');
+    expect(leadResult.answer).toMatch(/95[\s.,]?000/); // LLM formatiert Zahlen mal mit, mal ohne Tausenderzeichen
 
     // The member asks the same — their own history is empty, retrieval is
     // role-gated, so NOTHING about the salary band reaches the prompt.

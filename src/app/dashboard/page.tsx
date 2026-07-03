@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { listSkills } from '@/lib/skills';
 import { withTenant } from '@/lib/tenant';
+import { OnboardingCard } from './onboarding';
 import { ActorChip, formatDateTime } from './ui';
 
 export const dynamic = 'force-dynamic';
@@ -37,20 +38,30 @@ export default async function DashboardPage() {
   const { orgId } = await requireTenant();
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const { documentCount, runsLast7d, pendingApprovals, recentAudit } = await withTenant(
-    orgId,
-    async (tx) => ({
-      documentCount: await tx.document.count(),
-      runsLast7d: await tx.skillRun.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-      pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
-      recentAudit: await tx.auditLog.findMany({
-        // The overview row shows time/action/actor only — skip `detail` (JSON).
-        select: { id: true, createdAt: true, action: true, actorType: true },
-        orderBy: { createdAt: 'desc' },
-        take: 8,
-      }),
-    }),
-  );
+  const { documentCount, runsLast7d, pendingApprovals, recentAudit, onboarding } =
+    await withTenant(orgId, async (tx) => {
+      const documents = await tx.document.count();
+      return {
+        documentCount: documents,
+        runsLast7d: await tx.skillRun.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+        pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
+        recentAudit: await tx.auditLog.findMany({
+          // The overview row shows time/action/actor only — skip `detail` (JSON).
+          select: { id: true, createdAt: true, action: true, actorType: true },
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+        }),
+        // "Erste Schritte": Fortschritt aus echten Daten, kein eigener Zustand.
+        onboarding: {
+          hasDocument: documents > 0,
+          hasChatMessage: (await tx.chatMessage.count()) > 0,
+          hasRun: (await tx.skillRun.count()) > 0,
+          hasCompanyProfile: Boolean(
+            (await tx.orgSettings.findUnique({ where: { orgId } }))?.companyName,
+          ),
+        },
+      };
+    });
   const skillCount = listSkills().length;
 
   const kpis = [
@@ -86,6 +97,8 @@ export default async function DashboardPage() {
 
   return (
     <>
+      <OnboardingCard progress={onboarding} />
+
       {pendingApprovals > 0 ? (
         <div className="banner" role="status">
           <Icon d={ICONS.approvals} />

@@ -47,9 +47,11 @@
 // influence tenant A.
 import { Prisma, type Role, type SkillRun } from '@prisma/client';
 import { logAudit } from '../audit';
+import { assertWithinDailyLimit } from '../limits';
 import { getMemberRole, roleSatisfies } from '../policies';
 import { withTenant } from '../tenant';
 import { getSkill } from './catalog';
+import { notifyApprovalRequested } from './notify';
 import type { SkillDef, SkillJson } from './types';
 
 export interface RunHandle {
@@ -75,6 +77,8 @@ export async function startRun(
   const skill = getSkill(skillKey);
 
   const run = await withTenant(orgId, async (tx) => {
+    // Kostenschutz: Tageslimit für Skill-Läufe (weiches Limit, siehe limits.ts).
+    await assertWithinDailyLimit(tx, 'run');
     const created = await tx.skillRun.create({
       data: { orgId, skillKey: skill.key, status: 'running', input: asJson(input) },
     });
@@ -317,6 +321,15 @@ async function executeFrom(
             action: 'guardrail.triggered',
             target: `${skill.key}:${runId}: ${gate.reason}`,
           });
+        });
+        // NACH dem Commit: best-effort-Benachrichtigung (wirft nie — die
+        // Freigabe existiert bereits, mit oder ohne Mail).
+        await notifyApprovalRequested({
+          orgId,
+          runId,
+          skillKey: skill.key,
+          skillTitle: skill.title,
+          reason: gate.reason,
         });
         return { runId, status: 'awaiting_approval' };
       }

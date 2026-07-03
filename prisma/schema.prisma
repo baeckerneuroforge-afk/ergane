@@ -163,6 +163,14 @@ model SlackUserLink {
 model OrgSettings {
   orgId             String   @id @map("org_id") @db.Uuid
   chatRetentionDays Int?     @map("chat_retention_days")
+  // Firmendaten (Briefkopf/Fußzeile der Angebots-/Rechnungs-PDFs). Alle
+  // optional — ohne Profil bleiben die PDFs neutral, nichts wird erfunden.
+  companyName       String?  @map("company_name")
+  companyAddress    String?  @map("company_address")
+  companyVatId      String?  @map("company_vat_id")
+  companyBank       String?  @map("company_bank")
+  // Benachrichtigung bei wartenden Freigaben (z. B. Team-Alias). NULL = aus.
+  approvalNotifyEmail String? @map("approval_notify_email")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

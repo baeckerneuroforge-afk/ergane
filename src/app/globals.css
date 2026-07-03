@@ -1064,3 +1064,158 @@ pre.json {
     animation: none;
   }
 }
+
+/* --- Öffentliche Seiten (Landing + Rechtsseiten) ------------------------- */
+.public-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.public-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 0;
+}
+
+.public-logo {
+  font-family: var(--font-display, var(--font-sans));
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.public-logo .dot { color: var(--orange); }
+
+.public-main {
+  flex: 1;
+}
+
+.public-hero {
+  padding: 3.5rem 0 2.5rem;
+  max-width: 640px;
+}
+
+.public-hero h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+  margin-bottom: 0.75rem;
+}
+
+.public-hero p {
+  color: var(--text-2);
+  font-size: 1.05rem;
+  margin: 0 0 1.5rem;
+}
+
+.public-hero-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.public-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  padding-bottom: 3rem;
+}
+
+.public-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.public-footer-links {
+  display: flex;
+  gap: 1rem;
+}
+
+/* --- Rechtsseiten --------------------------------------------------------- */
+.legal {
+  max-width: 720px;
+  padding: 2rem 0 3rem;
+}
+
+.legal h1 {
+  font-size: 1.6rem;
+}
+
+.legal h2 {
+  margin-top: 1.75rem;
+}
+
+.legal table {
+  margin: 0.75rem 0;
+}
+
+.legal-placeholder {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-style: italic;
+}
+
+/* --- Onboarding ("Erste Schritte") ---------------------------------------- */
+.onboarding-count {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.onboarding-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.onboarding-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.onboarding-steps li.done {
+  opacity: 0.55;
+}
+
+.onboarding-steps li > div {
+  flex: 1;
+}
+
+.onboarding-check {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.85rem;
+  color: var(--text-3);
+}
+
+.onboarding-steps li.done .onboarding-check {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.onboarding-cta {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

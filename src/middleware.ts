@@ -10,12 +10,21 @@ import { buildCsp, cspHeaderName, generateCspNonce } from '@/lib/csp';
 // their signature (src/lib/slack/handlers.ts, src/lib/clerk/webhooks.ts,
 // fail-closed) before anything runs.
 const isPublicRoute = createRouteMatcher([
+  // Öffentliche Seiten: Landing + Rechtsseiten (kein Tenant-Bezug; die
+  // Landing leitet eingeloggte Nutzer selbst ins Dashboard weiter).
+  '/',
+  '/impressum',
+  '/datenschutz',
+  '/avv',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/slack(.*)',
   '/api/clerk(.*)',
   // Uptime checks — returns only up/down, no tenant data (Phase 13).
   '/api/health',
+  // Vercel Cron — authenticates itself via CRON_SECRET (fail-closed in the
+  // route; without the secret it answers 503/401, never runs).
+  '/api/cron(.*)',
 ]);
 const isOrgSelectRoute = createRouteMatcher(['/select-org(.*)']);
 

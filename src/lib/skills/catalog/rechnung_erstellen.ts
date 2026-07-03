@@ -7,7 +7,8 @@
 // Buchung bleibt simuliert (keine Buchhaltungs-Anbindung); der VERSAND geht
 // mit input.email wirklich raus (PDF-Anhang, Effekt-Provider — Phase 11),
 // sonst simuliert. Beides erst nach Guardrail/Freigabe.
-import { getEmailProvider, renderSimplePdf } from '../../effects';
+import { getCompanyProfile } from '../../company';
+import { formatEur, getEmailProvider, renderBusinessPdf } from '../../effects';
 import type { SkillDef, SkillJson } from '../types';
 import { emailAusInput } from './angebot_erstellen';
 
@@ -123,7 +124,7 @@ export const rechnungErstellen: SkillDef = {
       // Betrag-Guardrail (Summe > 1.000 € ⇒ erst nach menschlicher Freigabe).
       name: 'gebucht_versendet',
       acts: true,
-      run: async ({ input, state }) => {
+      run: async ({ orgId, tx, input, state }) => {
         const { kunde, positionen, summeEur } = parseInput(input);
         const email = emailAusInput(input);
         if (!email) {
@@ -135,21 +136,41 @@ export const rechnungErstellen: SkillDef = {
           };
         }
 
+        // Firmendaten aus den Einstellungen → Briefkopf/Fußzeile (USt-IdNr.,
+        // Bankverbindung). Leeres Profil ⇒ neutrales PDF.
+        const firma = await getCompanyProfile(tx, orgId);
         const rechnungstext = typeof state.rechnung_erzeugt?.rechnungstext === 'string'
           ? state.rechnung_erzeugt.rechnungstext
           : `Rechnung an ${kunde}`;
+        const pdf = renderBusinessPdf({
+          title: 'Rechnung',
+          sender: firma,
+          recipient: [kunde],
+          meta: [['Datum', new Date().toLocaleDateString('de-DE')]],
+          body: [
+            'Sehr geehrte Damen und Herren,',
+            'wir erlauben uns, Ihnen die folgenden Leistungen in Rechnung zu stellen:',
+          ],
+          positions: positionen.map((p) => ({ beschreibung: p.bezeichnung, betragEur: p.betragEur })),
+          totalLabel: 'Gesamtsumme',
+          closing: [
+            firma.bank
+              ? 'Bitte überweisen Sie den Gesamtbetrag auf das in der Fußzeile genannte Konto.'
+              : 'Bitte überweisen Sie den Gesamtbetrag unter Angabe der Rechnungsdaten.',
+            `Mit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
+          ],
+        });
         const zeilen = [
           rechnungstext,
           '',
-          ...positionen.map((p, i) => `${i + 1}. ${p.bezeichnung} — ${p.betragEur.toFixed(2)} EUR`),
+          ...positionen.map((p, i) => `${i + 1}. ${p.bezeichnung} — ${formatEur(p.betragEur)}`),
           '',
-          `Gesamtsumme: ${summeEur.toFixed(2)} EUR`,
+          `Gesamtsumme: ${formatEur(summeEur)}`,
         ];
-        const pdf = renderSimplePdf(`Rechnung für ${kunde}`, zeilen);
         const result = await getEmailProvider().send({
           to: email,
-          subject: `Ihre Rechnung über ${summeEur.toFixed(2)} EUR`,
-          text: zeilen.join('\n'),
+          subject: `Ihre Rechnung über ${formatEur(summeEur)}`,
+          text: `${zeilen.join('\n')}\n\nMit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
           attachment: { filename: 'rechnung.pdf', content: pdf },
         });
         return {

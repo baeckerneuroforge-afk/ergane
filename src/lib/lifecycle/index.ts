@@ -25,7 +25,9 @@
 //     migration header for the exact-token semantics).
 import type { Role } from '@prisma/client';
 import { logAudit } from '../audit';
+import { logError } from '../log';
 import { getMemberRole } from '../policies';
+import { prisma } from '../prisma';
 import { withTenant, type Tx } from '../tenant';
 
 const ADMIN_ROLES: Role[] = ['admin', 'owner'];
@@ -184,6 +186,37 @@ export async function enforceChatRetention(orgId: string): Promise<number> {
     }
     return count;
   });
+}
+
+/**
+ * Nightly retention sweep — der CRON-Pfad (Route /api/cron/retention). Die
+ * Tenant-Liste kommt aus retention_org_ids() (SECURITY DEFINER, Migration
+ * 0016): nur org-ids von Tenants MIT gesetzter Frist, sonst nichts. Jede
+ * Löschung läuft danach unverändert tenant-scoped durch enforceChatRetention
+ * (withTenant + Audit) — der Sweep macht Retention GARANTIERT statt nur
+ * opportunistisch nach Aktivität. Ein fehlschlagender Tenant stoppt die
+ * anderen nicht (Fehler zählen, weiterlaufen).
+ */
+export async function runRetentionSweep(): Promise<{
+  orgs: number;
+  deleted: number;
+  failed: number;
+}> {
+  const rows = await prisma.$queryRaw<Array<{ org_id: string }>>`
+    SELECT retention_org_ids() AS org_id
+  `;
+
+  let deleted = 0;
+  let failed = 0;
+  for (const { org_id } of rows) {
+    try {
+      deleted += await enforceChatRetention(org_id);
+    } catch (err) {
+      failed += 1;
+      logError('retention sweep: tenant failed', err, { orgId: org_id });
+    }
+  }
+  return { orgs: rows.length, deleted, failed };
 }
 
 // -----------------------------------------------------------------------------

@@ -8,7 +8,13 @@ import type { ApprovalMode, DocumentVisibility, Role } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
-import { setApprovalPolicy, setMembershipRole, setVisibilityGrant } from '@/lib/policies';
+import { setCompanyProfile } from '@/lib/company';
+import {
+  setApprovalNotifyEmail,
+  setApprovalPolicy,
+  setMembershipRole,
+  setVisibilityGrant,
+} from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
 import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
@@ -129,6 +135,41 @@ export async function removeSlackUserLink(formData: FormData) {
 
   const { orgId, userId } = await requireTenantWithMembership();
   await unlinkSlackUser({ orgId, actorUserId: userId, slackUserId });
+
+  revalidatePath('/dashboard/settings');
+}
+
+export async function saveApprovalNotifyEmail(formData: FormData) {
+  const raw = formData.get('notifyEmail');
+  const email = typeof raw === 'string' ? raw : null;
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await setApprovalNotifyEmail({ orgId, actorUserId: userId, email });
+
+  revalidatePath('/dashboard/settings');
+}
+
+// -----------------------------------------------------------------------------
+// Firmendaten (Admin-Gate + Audit in src/lib/company.ts)
+// -----------------------------------------------------------------------------
+
+export async function saveCompanyProfile(formData: FormData) {
+  const field = (name: string) => {
+    const value = formData.get(name);
+    return typeof value === 'string' ? value : null;
+  };
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await setCompanyProfile({
+    orgId,
+    actorUserId: userId,
+    profile: {
+      name: field('companyName'),
+      address: field('companyAddress'),
+      vatId: field('companyVatId'),
+      bank: field('companyBank'),
+    },
+  });
 
   revalidatePath('/dashboard/settings');
 }

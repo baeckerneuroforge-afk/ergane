@@ -5,7 +5,7 @@
   "description": "ergane — GDPR-native, multi-tenant B2B foundation. Tenant isolation is enforced by the database (Postgres RLS + FORCE), not by application-code discipline.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev --turbopack",
@@ -33,9 +33,6 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "postinstall": "prisma generate"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.0",

@@ -13,7 +13,9 @@ import { VisibilityBadge, formatEuro } from '../ui';
 import {
   eraseOrganization,
   purgeChat,
+  saveApprovalNotifyEmail,
   saveChatRetention,
+  saveCompanyProfile,
   removeSlackUserLink,
   saveApprovalPolicy,
   saveMembershipRole,
@@ -28,6 +30,7 @@ const TABS = [
   { key: 'freigaben', label: 'Freigabe-Regeln' },
   { key: 'sichtbarkeit', label: 'Wissens-Sichtbarkeit' },
   { key: 'mitglieder', label: 'Mitglieder & Rollen' },
+  { key: 'firma', label: 'Firmendaten' },
   { key: 'slack', label: 'Slack' },
   { key: 'daten', label: 'Daten & Löschung' },
 ] as const;
@@ -103,6 +106,29 @@ export default async function SettingsPage({
       </nav>
 
       {tab === 'freigaben' ? (
+        <>
+        <section className="card">
+          <h2>Benachrichtigung bei wartenden Freigaben</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Sobald ein Skill-Lauf pausiert und auf Freigabe wartet, geht eine kurze E-Mail an
+            diese Adresse (z. B. ein Team-Alias). Leer = keine Benachrichtigung. Der Versand
+            ist best-effort — die Freigabe selbst funktioniert immer auch ohne Mail.
+          </p>
+          <form action={saveApprovalNotifyEmail}>
+            <input
+              name="notifyEmail"
+              type="email"
+              maxLength={320}
+              defaultValue={orgSettings?.approvalNotifyEmail ?? ''}
+              placeholder="z. B. freigaben@firma.de"
+              className="select--inline"
+              style={{ width: '18rem' }}
+            />{' '}
+            <button type="submit" className="btn btn--primary select--inline">
+              Speichern
+            </button>
+          </form>
+        </section>
         <section className="card card--table">
           <div className="card-title">
             <h2>Freigabe-Regeln pro Skill</h2>
@@ -160,6 +186,7 @@ export default async function SettingsPage({
             </tbody>
           </table>
         </section>
+        </>
       ) : null}
 
       {tab === 'sichtbarkeit' ? (
@@ -303,6 +330,56 @@ export default async function SettingsPage({
               })}
             </tbody>
           </table>
+        </section>
+      ) : null}
+
+      {tab === 'firma' ? (
+        <section className="card">
+          <h2>Firmendaten</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Briefkopf und Fußzeile der erzeugten Angebots- und Rechnungs-PDFs. Alle Felder
+            sind optional — leere Felder erscheinen schlicht nicht im Dokument. Jede Änderung
+            wird auditiert.
+          </p>
+          <form action={saveCompanyProfile}>
+            <label htmlFor="companyName">Firmenname</label>
+            <input
+              id="companyName"
+              name="companyName"
+              maxLength={200}
+              defaultValue={orgSettings?.companyName ?? ''}
+              placeholder="z. B. Hephaistos Systems GmbH"
+            />
+            <label htmlFor="companyAddress">Anschrift</label>
+            <textarea
+              id="companyAddress"
+              name="companyAddress"
+              rows={3}
+              maxLength={500}
+              defaultValue={orgSettings?.companyAddress ?? ''}
+              placeholder={'Musterstraße 1\n20095 Hamburg'}
+            />
+            <label htmlFor="companyVatId">USt-IdNr.</label>
+            <input
+              id="companyVatId"
+              name="companyVatId"
+              maxLength={50}
+              defaultValue={orgSettings?.companyVatId ?? ''}
+              placeholder="z. B. DE123456789"
+            />
+            <label htmlFor="companyBank">Bankverbindung</label>
+            <textarea
+              id="companyBank"
+              name="companyBank"
+              rows={3}
+              maxLength={500}
+              defaultValue={orgSettings?.companyBank ?? ''}
+              placeholder={'Musterbank\nIBAN: DE00 0000 0000 0000 0000 00\nBIC: XXXXDEXX'}
+            />
+            <button type="submit" className="btn btn--primary">
+              Speichern
+            </button>
+          </form>
         </section>
       ) : null}
 
