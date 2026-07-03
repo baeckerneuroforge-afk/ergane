@@ -18,7 +18,7 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
     <div className="public-page">
       <header className="public-header">
         <Link href="/" className="public-logo">
-          ergane
+          ergane<span className="dot">.</span>
         </Link>
         <nav style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
           <LanguageSwitcher />

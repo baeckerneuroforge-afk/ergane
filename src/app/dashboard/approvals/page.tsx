@@ -29,10 +29,14 @@ export default async function ApprovalsPage() {
 
   return (
     <>
-      <p className="page-intro">{a.intro}</p>
-
       {pending.length === 0 ? (
-        <div className="empty">{a.empty}</div>
+        <div className="empty">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M9 12l2 2 4-4M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z" />
+          </svg>
+          <strong>{a.emptyTitle}</strong>
+          <span>{a.emptyHint}</span>
+        </div>
       ) : (
         pending.map((approval) => {
           const amount = amountOfInput(approval.run.input);
@@ -78,7 +82,10 @@ export default async function ApprovalsPage() {
 
       {decided.length > 0 ? (
         <section className="card card--table">
-          <h2 style={{ padding: '0.8rem 1.25rem 0' }}>{a.decided}</h2>
+          <div className="card-title">
+            <h2>{a.decided}</h2>
+            <span className="row-meta">{a.decidedRecent(decided.length)}</span>
+          </div>
           <table className="table">
             <thead>
               <tr>

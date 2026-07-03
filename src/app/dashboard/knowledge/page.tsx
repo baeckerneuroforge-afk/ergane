@@ -56,9 +56,12 @@ export default async function KnowledgePage() {
       </section>
 
       <section className="card card--table">
-        <h2 style={{ padding: '0.8rem 1.25rem 0' }}>{k.documents(documents.length)}</h2>
+        <div className="card-title">
+          <h2>{k.documentsTitle}</h2>
+          <span className="row-meta">{k.entryCount(documents.length)}</span>
+        </div>
         {documents.length === 0 ? (
-          <p className="muted" style={{ padding: '0 1.25rem 0.8rem' }}>
+          <p className="muted" style={{ padding: '0 1.3rem 0.8rem' }}>
             {k.noDocuments}
           </p>
         ) : (

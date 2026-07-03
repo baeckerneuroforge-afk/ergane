@@ -69,14 +69,7 @@ export function UploadDropzone() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        style={{
-          border: `2px dashed ${dragOver ? 'var(--indigo, #4f46e5)' : '#c7c9d1'}`,
-          borderRadius: '8px',
-          padding: '1.5rem',
-          textAlign: 'center',
-          cursor: isPending ? 'wait' : 'pointer',
-          background: dragOver ? 'rgba(79,70,229,0.06)' : 'transparent',
-        }}
+        className={`dropzone${dragOver ? ' dropzone--over' : ''}${isPending ? ' dropzone--busy' : ''}`}
       >
         <strong>{k.upload.dropHere}</strong> {k.upload.orClick}
         <div className="muted" style={{ marginTop: '0.35rem', fontSize: '0.85rem' }}>

@@ -26,7 +26,7 @@ const RUN_CHIP: Record<SkillRunStatus, string> = {
 
 export function RunStatusChip({ status, locale }: { status: SkillRunStatus; locale: Locale }) {
   const label = getDictionary(locale).status.run[status];
-  return <span className={`chip ${RUN_CHIP[status]}`}>{label}</span>;
+  return <span className={`chip chip--dot ${RUN_CHIP[status]}`}>{label}</span>;
 }
 
 const APPROVAL_CHIP: Record<ApprovalStatus, string> = {
@@ -43,7 +43,7 @@ export function ApprovalStatusChip({
   locale: Locale;
 }) {
   const label = getDictionary(locale).status.approval[status];
-  return <span className={`chip ${APPROVAL_CHIP[status]}`}>{label}</span>;
+  return <span className={`chip chip--dot ${APPROVAL_CHIP[status]}`}>{label}</span>;
 }
 
 const VISIBILITY_CHIP: Record<DocumentVisibility, string> = {

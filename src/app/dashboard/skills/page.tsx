@@ -57,21 +57,33 @@ export default async function SkillsPage() {
         {skills.map((skill) => {
           const acts = skill.steps.some((s) => s.acts);
           return (
-            <section className="card" key={skill.key} style={{ display: 'grid', gap: '0.6rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <section className="card skill-card" key={skill.key}>
+              <div className="skill-head">
                 <strong>{t.skillTitles[skill.key] ?? skill.title}</strong>
-                <span className={`chip ${acts ? 'chip--orange' : 'chip--indigo'}`}>
+                <span className={`chip chip--dot ${acts ? 'chip--orange' : 'chip--indigo'}`}>
                   {acts ? t.skills.acts : t.skills.readsOnly}
                 </span>
-              </div>
-              <div>
                 <span className="chip">{skill.key}</span>
               </div>
-              <div className="row-meta">
-                {guardrailInfo(skill, policies.get(skill.key) ?? null, t.skills.guardrail, locale)}
+              <div className="skill-guardrail">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z" />
+                </svg>
+                <span>{guardrailInfo(skill, policies.get(skill.key) ?? null, t.skills.guardrail, locale)}</span>
               </div>
+              <hr className="skill-divider" />
 
-              <form action={startSkillRun} style={{ marginTop: '0.4rem' }}>
+              <form action={startSkillRun}>
                 <input type="hidden" name="skillKey" value={skill.key} />
                 {skill.key === 'beleg_kontieren' ? (
                   <>

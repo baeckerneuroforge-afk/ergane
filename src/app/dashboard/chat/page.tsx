@@ -78,7 +78,13 @@ export default async function ChatPage() {
 
       <div className="chat-scroll">
         {messages.length === 0 ? (
-          <div className="empty">{c.empty}</div>
+          <div className="empty">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 1 1 16.1-3.8z" />
+            </svg>
+            <strong>{c.emptyTitle}</strong>
+            <span>{c.emptyHint}</span>
+          </div>
         ) : (
           messages.map((msg) => {
             if (msg.role === 'user') {

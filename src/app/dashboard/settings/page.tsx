@@ -136,7 +136,9 @@ export default async function SettingsPage({
           </form>
         </section>
         <section className="card card--table">
-          <h2 style={{ padding: '0.8rem 1.25rem 0' }}>{s.policiesTitle}</h2>
+          <div className="card-title">
+            <h2>{s.policiesTitle}</h2>
+          </div>
           <p className="muted" style={{ padding: '0 1.25rem' }}>
             <span className="chip chip--amber">{s.failsafeChip}</span> {s.policiesFailsafe}
           </p>
@@ -248,7 +250,9 @@ export default async function SettingsPage({
           </section>
 
           <section className="card card--table">
-            <h2 style={{ padding: '0.8rem 1.25rem 0' }}>{s.documentsLevelTitle}</h2>
+            <div className="card-title">
+              <h2>{s.documentsLevelTitle}</h2>
+            </div>
             <p className="muted" style={{ padding: '0 1.25rem' }}>
               {s.documentsLevelHint}{' '}
               <Link href="/dashboard/knowledge">{s.documentsLevelLink}</Link>.
@@ -281,7 +285,10 @@ export default async function SettingsPage({
 
       {tab === 'members' ? (
         <section className="card card--table">
-          <h2 style={{ padding: '0.8rem 1.25rem 0' }}>{s.membersTitle(memberships.length)}</h2>
+          <div className="card-title">
+            <h2>{s.membersHeading}</h2>
+            <span className="row-meta">{s.membersTotal(memberships.length)}</span>
+          </div>
           <p className="muted" style={{ padding: '0 1.25rem' }}>
             {s.membersHint}
           </p>
@@ -420,9 +427,10 @@ export default async function SettingsPage({
           </section>
 
           <section className="card card--table">
-            <h2 style={{ padding: '0.8rem 1.25rem 0' }}>
-              {s.slackLinksTitle(slackLinks.length)}
-            </h2>
+            <div className="card-title">
+              <h2>{s.slackLinksHeading}</h2>
+              <span className="row-meta">{s.slackLinkedCount(slackLinks.length)}</span>
+            </div>
             <p className="muted" style={{ padding: '0 1.25rem' }}>
               {s.slackLinksHint}
             </p>

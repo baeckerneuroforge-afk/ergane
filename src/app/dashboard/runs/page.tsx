@@ -22,13 +22,18 @@ export default async function RunsPage() {
 
   return (
     <>
-      <p className="page-intro">{t.runs.intro}</p>
-
       <section className="card card--table">
         {runs.length === 0 ? (
-          <p className="muted" style={{ padding: '0.8rem 1.25rem' }}>
-            {t.runs.noRuns} <Link href="/dashboard/skills">{t.nav.skills}</Link>.
-          </p>
+          <div className="empty" style={{ margin: '1rem 1.3rem' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 22a10 10 0 1 0-10-10M2 22l5-5M2 17v5h5" />
+            </svg>
+            <strong>{t.runs.emptyTitle}</strong>
+            <span>
+              {t.runs.emptyHintPrefix} <Link href="/dashboard/skills">{t.nav.skills}</Link>{' '}
+              {t.runs.emptyHintSuffix}
+            </span>
+          </div>
         ) : (
           <table className="table">
             <thead>
