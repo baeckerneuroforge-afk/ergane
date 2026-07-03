@@ -198,13 +198,13 @@ interface GateVerdict {
 function skillDefaultGate(skill: SkillDef, input: SkillJson): { cleared: boolean; reason: string } {
   if (!skill.guardrail) {
     if (skill.handlesMoney) {
-      return { cleared: false, reason: 'handlesMoney ohne Guardrail — Freigabe erforderlich' };
+      return { cleared: false, reason: 'handlesMoney without a guardrail — approval required' };
     }
     return { cleared: true, reason: 'no guardrail defined' };
   }
   const verdict = skill.guardrail(input);
   if (verdict.triggered) {
-    return { cleared: false, reason: verdict.reason ?? 'Guardrail ausgelöst — Freigabe erforderlich' };
+    return { cleared: false, reason: verdict.reason ?? 'Guardrail triggered — approval required' };
   }
   return { cleared: true, reason: 'guardrail not triggered' };
 }
@@ -232,7 +232,7 @@ async function actingStepCleared(
     const requiredRole: Role = policy.approverRole ?? 'lead';
 
     if (policy.mode === 'always') {
-      return { cleared: false, reason: 'Policy: Freigabe immer erforderlich', requiredRole };
+      return { cleared: false, reason: 'Policy: approval always required', requiredRole };
     }
 
     if (policy.mode === 'threshold') {
@@ -243,23 +243,23 @@ async function actingStepCleared(
       if (threshold === null || amount === null) {
         return {
           cleared: false,
-          reason: 'Policy threshold: Betrag/Schwelle nicht bestimmbar — Freigabe erforderlich',
+          reason: 'Policy threshold: amount/threshold not determinable — approval required',
           requiredRole,
         };
       }
       if (amount >= threshold) {
         return {
           cleared: false,
-          reason: `Betrag ${amount.toFixed(2)} € ≥ Schwelle ${threshold.toFixed(2)} € — Freigabe erforderlich`,
+          reason: `Amount ${amount.toFixed(2)} EUR ≥ threshold ${threshold.toFixed(2)} EUR — approval required`,
           requiredRole,
         };
       }
-      return { cleared: true, reason: `Betrag unter Policy-Schwelle ${threshold.toFixed(2)} €`, requiredRole };
+      return { cleared: true, reason: `Amount below policy threshold ${threshold.toFixed(2)} EUR`, requiredRole };
     }
 
     // mode === 'never'
     if (!skill.handlesMoney) {
-      return { cleared: true, reason: 'Policy: keine Freigabe nötig', requiredRole };
+      return { cleared: true, reason: 'Policy: no approval needed', requiredRole };
     }
     // FAILSAFE (deliberately non-disablable): 'never' on a money skill is
     // ignored at runtime — the skill's own guardrail applies instead. Audited.
@@ -272,7 +272,7 @@ async function actingStepCleared(
         target: `${skill.key}:${runId}`,
         detail: {
           policyMode: 'never',
-          reason: 'handlesMoney-Skill: Freigabe-Pflicht ist nicht abschaltbar',
+          reason: 'handlesMoney skill: the approval requirement cannot be disabled',
         },
       }),
     );

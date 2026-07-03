@@ -11,7 +11,7 @@
 //   - Weiches Limit: parallele Requests können es um wenige Einheiten
 //     überschreiten — als Kostenschutz völlig ausreichend, dafür ohne
 //     Lock-/Countertabelle.
-//   - Fehlermeldungen deutsch (sie erreichen den Nutzer direkt).
+//   - Fehlermeldungen englisch (Plattform-Default; sie erreichen den Nutzer direkt).
 import type { Tx } from './tenant';
 
 export type LimitKind = 'chat' | 'ingest' | 'run';
@@ -30,11 +30,11 @@ const ENV_KEYS: Record<LimitKind, string> = {
 
 const MESSAGES: Record<LimitKind, (limit: number) => string> = {
   chat: (l) =>
-    `Tageslimit erreicht: ${l} Chat-Anfragen pro Tag. Bitte morgen erneut versuchen oder den Support kontaktieren.`,
+    `Daily limit reached: ${l} chat requests per day. Please try again tomorrow or contact support.`,
   ingest: (l) =>
-    `Tageslimit erreicht: ${l} neue Dokumente pro Tag. Bitte morgen erneut versuchen oder den Support kontaktieren.`,
+    `Daily limit reached: ${l} new documents per day. Please try again tomorrow or contact support.`,
   run: (l) =>
-    `Tageslimit erreicht: ${l} Skill-Läufe pro Tag. Bitte morgen erneut versuchen oder den Support kontaktieren.`,
+    `Daily limit reached: ${l} skill runs per day. Please try again tomorrow or contact support.`,
 };
 
 /** Wirksames Limit: Env-Override oder Default; <= 0 ⇒ unbegrenzt (null). */
@@ -66,7 +66,7 @@ async function usedToday(tx: Tx, kind: LimitKind): Promise<number> {
 }
 
 /**
- * Fail-closed-Gate vor der teuren Aktion: wirft mit deutscher Meldung, wenn
+ * Fail-closed-Gate vor der teuren Aktion: wirft mit englischer Meldung, wenn
  * das Tageslimit erreicht ist. Im withTenant-Tx des Aufrufers verwenden.
  */
 export async function assertWithinDailyLimit(tx: Tx, kind: LimitKind): Promise<void> {

@@ -184,7 +184,7 @@ describe('angebot_erstellen (externe Wirkung: IMMER Freigabe, unabhängig vom Be
     const approval = await withTenant(ORG_A, (tx) =>
       tx.approval.findFirstOrThrow({ where: { runId: run.runId } }),
     );
-    expect(approval.reason).toMatch(/[Ee]xterne Kommunikation/);
+    expect(approval.reason).toMatch(/[Ee]xternal communication/);
 
     // Die lesenden Schritte liefen, der handelnde nicht.
     const steps = await stepsOf(run.runId);

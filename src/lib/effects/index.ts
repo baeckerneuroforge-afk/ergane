@@ -26,5 +26,5 @@ export function getEmailProvider(): EmailProvider {
 }
 
 export { formatEur, renderBusinessPdf, renderSimplePdf } from './pdf';
-export type { BusinessPdfInput, BusinessPdfPosition, PdfSender } from './pdf';
+export type { BusinessPdfInput, BusinessPdfPosition, PdfLocale, PdfSender } from './pdf';
 export type { EmailProvider, EmailResult, OutgoingEmail, EmailAttachment } from './types';

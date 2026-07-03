@@ -86,8 +86,8 @@ describe('email effect is gated by the approval', () => {
 
     const mail = fake.sent[0]!;
     expect(mail.to).toBe('einkauf@kunde.example');
-    expect(mail.subject).toContain('4.800,00 EUR');
-    expect(mail.attachment?.filename).toBe('angebot.pdf');
+    expect(mail.subject).toContain('4,800.00 EUR');
+    expect(mail.attachment?.filename).toBe('quote.pdf');
     expect(Buffer.from(mail.attachment!.content.slice(0, 5)).toString()).toBe('%PDF-');
 
     const step = await withTenant(ORG, (tx) =>
@@ -117,8 +117,8 @@ describe('email effect is gated by the approval', () => {
 
     await approve(ORG, handle.runId, APPROVER);
     expect(fake.sent).toHaveLength(1);
-    expect(fake.sent[0]!.attachment?.filename).toBe('rechnung.pdf');
-    expect(fake.sent[0]!.text).toContain('1.500,00 EUR');
+    expect(fake.sent[0]!.attachment?.filename).toBe('invoice.pdf');
+    expect(fake.sent[0]!.text).toContain('1,500.00 EUR');
   });
 });
 

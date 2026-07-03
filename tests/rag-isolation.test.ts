@@ -192,7 +192,7 @@ describe('RAG flow (fake providers — no network)', () => {
       tx.chatMessage.findMany({ orderBy: { createdAt: 'asc' } }),
     );
     expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant']);
-    expect(msgs[1]?.content).toContain(`Quellen: ${DOC_A.title}`);
+    expect(msgs[1]?.content).toContain(`Sources: ${DOC_A.title}`);
   });
 
   it('question with no matching knowledge → honest "kein geprüftes Wissen" answer, no sources', async () => {

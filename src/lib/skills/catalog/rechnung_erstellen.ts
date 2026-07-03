@@ -7,14 +7,18 @@
 // Buchung bleibt simuliert (keine Buchhaltungs-Anbindung); der VERSAND geht
 // mit input.email wirklich raus (PDF-Anhang, Effekt-Provider — Phase 11),
 // sonst simuliert. Beides erst nach Guardrail/Freigabe.
+//
+// Document language: invoice text, e-mail and PDF follow the ORG locale
+// (org_settings.locale, default 'en') — customer-facing output, not the UI.
 import { getCompanyProfile } from '../../company';
-import { formatEur, getEmailProvider, renderBusinessPdf } from '../../effects';
+import { getOrgLocale } from '../../i18n/org';
+import { formatEur, getEmailProvider, renderBusinessPdf, type PdfLocale } from '../../effects';
 import type { SkillDef, SkillJson } from '../types';
 import { emailAusInput } from './angebot_erstellen';
 
 export const RECHNUNG_GUARDRAIL_LIMIT_EUR = 1000;
 export const RECHNUNG_GUARDRAIL_REASON =
-  'Rechnungssumme über 1.000 € — Freigabe erforderlich';
+  'Invoice total over 1,000 EUR — approval required';
 
 interface Position {
   bezeichnung: string;
@@ -79,9 +83,53 @@ function parseInput(input: SkillJson): RechnungInput {
   return { kunde, positionen, summeEur: berechnet };
 }
 
+/** Customer-facing wording per document language (org locale). */
+const TEXTS: Record<PdfLocale, {
+  docTitle: string;
+  invoiceText: (kunde: string, count: number, total: string) => string;
+  dateLabel: string;
+  salutation: string;
+  bodyIntro: string;
+  totalLabel: string;
+  payToFooterAccount: string;
+  payWithReference: string;
+  regards: string;
+  subject: (amount: string) => string;
+  pdfFilename: string;
+}> = {
+  en: {
+    docTitle: 'Invoice',
+    invoiceText: (kunde, count, total) =>
+      `Invoice to ${kunde} — ${count} line item(s), total ${total} EUR`,
+    dateLabel: 'Date',
+    salutation: 'Dear Sir or Madam,',
+    bodyIntro: 'we hereby invoice you for the following services:',
+    totalLabel: 'Total',
+    payToFooterAccount: 'Please transfer the total amount to the account stated in the footer.',
+    payWithReference: 'Please transfer the total amount quoting the invoice details.',
+    regards: 'Kind regards',
+    subject: (amount) => `Your invoice for ${amount}`,
+    pdfFilename: 'invoice.pdf',
+  },
+  de: {
+    docTitle: 'Rechnung',
+    invoiceText: (kunde, count, total) =>
+      `Rechnung an ${kunde} — ${count} Position(en), gesamt ${total} EUR`,
+    dateLabel: 'Datum',
+    salutation: 'Sehr geehrte Damen und Herren,',
+    bodyIntro: 'wir erlauben uns, Ihnen die folgenden Leistungen in Rechnung zu stellen:',
+    totalLabel: 'Gesamtsumme',
+    payToFooterAccount: 'Bitte überweisen Sie den Gesamtbetrag auf das in der Fußzeile genannte Konto.',
+    payWithReference: 'Bitte überweisen Sie den Gesamtbetrag unter Angabe der Rechnungsdaten.',
+    regards: 'Mit freundlichen Grüßen',
+    subject: (amount) => `Ihre Rechnung über ${amount}`,
+    pdfFilename: 'rechnung.pdf',
+  },
+};
+
 export const rechnungErstellen: SkillDef = {
   key: 'rechnung_erstellen',
-  title: 'Rechnung erstellen und buchen',
+  title: 'Create and post an invoice',
   handlesMoney: true,
   guardrail: (input) => {
     const summe = summeOf(input);
@@ -105,8 +153,9 @@ export const rechnungErstellen: SkillDef = {
     {
       // liest nur: Rechnung als Dokumentstruktur erzeugen (deterministisch).
       name: 'rechnung_erzeugt',
-      run: async ({ input }) => {
+      run: async ({ orgId, tx, input }) => {
         const { kunde, positionen, summeEur } = parseInput(input);
+        const locale = await getOrgLocale(tx, orgId);
         return {
           empfaenger: kunde,
           positionen: positionen.map((p, i) => ({
@@ -115,7 +164,7 @@ export const rechnungErstellen: SkillDef = {
             betragEur: p.betragEur,
           })),
           summeEur,
-          rechnungstext: `Rechnung an ${kunde} — ${positionen.length} Position(en), gesamt ${summeEur.toFixed(2)} EUR`,
+          rechnungstext: TEXTS[locale].invoiceText(kunde, positionen.length, summeEur.toFixed(2)),
         };
       },
     },
@@ -137,41 +186,39 @@ export const rechnungErstellen: SkillDef = {
         }
 
         // Firmendaten aus den Einstellungen → Briefkopf/Fußzeile (USt-IdNr.,
-        // Bankverbindung). Leeres Profil ⇒ neutrales PDF.
+        // Bankverbindung). Leeres Profil ⇒ neutrales PDF. Sprache = Org-Locale.
+        const locale = await getOrgLocale(tx, orgId);
+        const texts = TEXTS[locale];
         const firma = await getCompanyProfile(tx, orgId);
         const rechnungstext = typeof state.rechnung_erzeugt?.rechnungstext === 'string'
           ? state.rechnung_erzeugt.rechnungstext
-          : `Rechnung an ${kunde}`;
+          : texts.invoiceText(kunde, positionen.length, summeEur.toFixed(2));
         const pdf = renderBusinessPdf({
-          title: 'Rechnung',
+          title: texts.docTitle,
+          locale,
           sender: firma,
           recipient: [kunde],
-          meta: [['Datum', new Date().toLocaleDateString('de-DE')]],
-          body: [
-            'Sehr geehrte Damen und Herren,',
-            'wir erlauben uns, Ihnen die folgenden Leistungen in Rechnung zu stellen:',
-          ],
+          meta: [[texts.dateLabel, new Date().toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-GB')]],
+          body: [texts.salutation, texts.bodyIntro],
           positions: positionen.map((p) => ({ beschreibung: p.bezeichnung, betragEur: p.betragEur })),
-          totalLabel: 'Gesamtsumme',
+          totalLabel: texts.totalLabel,
           closing: [
-            firma.bank
-              ? 'Bitte überweisen Sie den Gesamtbetrag auf das in der Fußzeile genannte Konto.'
-              : 'Bitte überweisen Sie den Gesamtbetrag unter Angabe der Rechnungsdaten.',
-            `Mit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
+            firma.bank ? texts.payToFooterAccount : texts.payWithReference,
+            `${texts.regards}${firma.name ? `\n${firma.name}` : ''}`,
           ],
         });
         const zeilen = [
           rechnungstext,
           '',
-          ...positionen.map((p, i) => `${i + 1}. ${p.bezeichnung} — ${formatEur(p.betragEur)}`),
+          ...positionen.map((p, i) => `${i + 1}. ${p.bezeichnung} — ${formatEur(p.betragEur, locale)}`),
           '',
-          `Gesamtsumme: ${formatEur(summeEur)}`,
+          `${texts.totalLabel}: ${formatEur(summeEur, locale)}`,
         ];
         const result = await getEmailProvider().send({
           to: email,
-          subject: `Ihre Rechnung über ${formatEur(summeEur)}`,
-          text: `${zeilen.join('\n')}\n\nMit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
-          attachment: { filename: 'rechnung.pdf', content: pdf },
+          subject: texts.subject(formatEur(summeEur, locale)),
+          text: `${zeilen.join('\n')}\n\n${texts.regards}${firma.name ? `\n${firma.name}` : ''}`,
+          attachment: { filename: texts.pdfFilename, content: pdf },
         });
         return {
           gebucht: true, // Buchung weiterhin simuliert (keine Buchhaltungs-Anbindung)

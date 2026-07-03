@@ -6,8 +6,8 @@
 //
 // Fail-closed by design: anything that cannot be extracted into real text
 // (oversize file, wrong MIME/extension, scanned PDF without a text layer,
-// empty document) throws an ExtractionError with a user-readable German
-// message. There is NO silent empty import.
+// empty document) throws an ExtractionError with a user-readable message.
+// There is NO silent empty import.
 import mammoth from 'mammoth';
 import { extractText as extractPdfText } from 'unpdf';
 import { getOcrProvider, OCR_MAX_PAGES, type OcrProvider } from './ocr';
@@ -71,7 +71,7 @@ export function detectFormat(filename: string, mimeType: string): SourceFormat {
   const format = FORMAT_BY_EXTENSION[ext];
   if (!format) {
     throw new ExtractionError(
-      `Nicht unterstütztes Format "${ext ? `.${ext}` : filename}" — erlaubt sind .pdf, .docx, .md, .txt.`,
+      `Unsupported format "${ext ? `.${ext}` : filename}" — allowed are .pdf, .docx, .md, .txt.`,
     );
   }
   // '' and the generic octet-stream mean "client didn't know" — the extension
@@ -79,7 +79,7 @@ export function detectFormat(filename: string, mimeType: string): SourceFormat {
   const mime = mimeType.trim().toLowerCase();
   if (mime && mime !== 'application/octet-stream' && !ALLOWED_MIMES[format].includes(mime)) {
     throw new ExtractionError(
-      `MIME-Typ "${mime}" passt nicht zur Endung .${ext} — Datei abgelehnt.`,
+      `MIME type "${mime}" does not match the extension .${ext} — file rejected.`,
     );
   }
   return format;
@@ -129,7 +129,7 @@ async function extractPdf(data: Uint8Array, ocr: OcrProvider | null): Promise<Ex
   try {
     ({ totalPages, text } = await extractPdfText(data, { mergePages: true }));
   } catch {
-    throw new ExtractionError('PDF konnte nicht gelesen werden — Datei beschädigt oder kein PDF.');
+    throw new ExtractionError('The PDF could not be read — file corrupted or not a PDF.');
   }
   const cleaned = text.trim();
   if (!cleaned) {
@@ -150,10 +150,10 @@ async function extractPdf(data: Uint8Array, ocr: OcrProvider | null): Promise<Ex
     try {
       ocrText = (await ocr.extractPdfText(data)).trim();
     } catch {
-      throw new ExtractionError('OCR fehlgeschlagen — bitte erneut versuchen oder ein Text-PDF hochladen.');
+      throw new ExtractionError('OCR failed — please try again or upload a text PDF.');
     }
     if (!ocrText) {
-      throw new ExtractionError('OCR fand keinen lesbaren Text in diesem Scan.');
+      throw new ExtractionError('OCR found no readable text in this scan.');
     }
     return {
       text: ocrText,
@@ -172,11 +172,11 @@ async function extractDocx(data: Uint8Array): Promise<ExtractResult> {
     // extractRawText keeps headings/paragraphs as separate blocks ("\n\n").
     ({ value } = await mammoth.extractRawText({ buffer: Buffer.from(data) }));
   } catch {
-    throw new ExtractionError('DOCX konnte nicht gelesen werden — Datei beschädigt oder kein DOCX.');
+    throw new ExtractionError('The DOCX could not be read — file corrupted or not a DOCX.');
   }
   const cleaned = value.trim();
   if (!cleaned) {
-    throw new ExtractionError('DOCX enthält keinen extrahierbaren Text.');
+    throw new ExtractionError('The DOCX contains no extractable text.');
   }
   return {
     text: cleaned,
@@ -188,7 +188,7 @@ function extractPlain(data: Uint8Array, format: 'md' | 'txt'): ExtractResult {
   const raw = new TextDecoder('utf-8', { fatal: false }).decode(data);
   const text = (format === 'md' ? cleanMarkdown(raw) : raw).trim();
   if (!text) {
-    throw new ExtractionError('Datei enthält keinen Text.');
+    throw new ExtractionError('The file contains no text.');
   }
   return { text, meta: { format, pageCount: null, wordCount: countWords(text) } };
 }
@@ -204,11 +204,11 @@ export async function extractText(
 ): Promise<ExtractResult> {
   if (input.data.byteLength > MAX_FILE_BYTES) {
     throw new ExtractionError(
-      `Datei zu groß (${(input.data.byteLength / 1024 / 1024).toFixed(1)} MB) — Limit sind 20 MB.`,
+      `File too large (${(input.data.byteLength / 1024 / 1024).toFixed(1)} MB) — the limit is 20 MB.`,
     );
   }
   if (input.data.byteLength === 0) {
-    throw new ExtractionError('Leere Datei — nichts zu extrahieren.');
+    throw new ExtractionError('Empty file — nothing to extract.');
   }
   const format = detectFormat(input.filename, input.mimeType);
   switch (format) {

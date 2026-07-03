@@ -9,7 +9,7 @@
 import type { SkillDef, SkillJson } from '../types';
 
 export const GUARDRAIL_LIMIT_EUR = 1000;
-export const GUARDRAIL_REASON = 'Betrag über 1.000 € — Freigabe erforderlich';
+export const GUARDRAIL_REASON = 'Amount over 1,000 EUR — approval required';
 
 interface BelegInput {
   beschreibung: string;
@@ -45,7 +45,7 @@ const FALLBACK_ACCOUNT = { konto: '4900', kontoName: 'Sonstige betriebliche Aufw
 
 export const belegKontieren: SkillDef = {
   key: 'beleg_kontieren',
-  title: 'Beleg kontieren und verbuchen',
+  title: 'Code and post a receipt',
   handlesMoney: true,
   guardrail: (input) => {
     const { betragEur } = parseInput(input);
@@ -73,7 +73,7 @@ export const belegKontieren: SkillDef = {
         return {
           konto: rule.konto,
           kontoName: rule.kontoName,
-          begruendung: `Vorschlag anhand der Belegbeschreibung "${beschreibung}"`,
+          begruendung: `Suggestion based on the receipt description "${beschreibung}"`,
         };
       },
     },
@@ -86,7 +86,7 @@ export const belegKontieren: SkillDef = {
           buchungssatz: `${konto} an 1200`,
           betragEur,
           belegNummer: belegNummer ?? null,
-          buchungstext: `Beleg ${belegNummer ?? '(ohne Nummer)'} — ${betragEur.toFixed(2)} EUR`,
+          buchungstext: `Receipt ${belegNummer ?? '(no number)'} — ${betragEur.toFixed(2)} EUR`,
         };
       },
     },

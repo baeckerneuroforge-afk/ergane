@@ -8,7 +8,10 @@
 //     wird geloggt und verschluckt — Guardrail/Approval funktionieren immer
 //     auch ohne Benachrichtigung
 //   - keine Adresse konfiguriert ⇒ stiller No-op
+//   - Sprache: Org-Locale (org_settings.locale, Default 'en') — die Mail geht
+//     an einen org-weiten Alias, nicht an einen Browser.
 import { getEmailProvider } from '../effects';
+import { getDictionary, isLocale, type Locale } from '../i18n';
 import { logError } from '../log';
 import { withTenant } from '../tenant';
 
@@ -20,6 +23,32 @@ export interface ApprovalNotification {
   reason: string;
 }
 
+const MAIL_TEXTS: Record<Locale, {
+  subject: (skillTitle: string) => string;
+  intro: string;
+  skill: string;
+  reason: string;
+  run: string;
+  decide: string;
+}> = {
+  en: {
+    subject: (skillTitle) => `Approval requested: ${skillTitle}`,
+    intro: 'A skill run is waiting for human approval.',
+    skill: 'Skill',
+    reason: 'Reason',
+    run: 'Run',
+    decide: 'To decide: Dashboard → Approvals (/dashboard/approvals)',
+  },
+  de: {
+    subject: (skillTitle) => `Freigabe angefragt: ${skillTitle}`,
+    intro: 'Ein Skill-Lauf wartet auf menschliche Freigabe.',
+    skill: 'Skill',
+    reason: 'Grund',
+    run: 'Run',
+    decide: 'Zur Entscheidung: Dashboard → Freigaben (/dashboard/approvals)',
+  },
+};
+
 /** true = Mail wurde übergeben; false = keine Adresse/Fehler (geloggt). */
 export async function notifyApprovalRequested(n: ApprovalNotification): Promise<boolean> {
   try {
@@ -29,17 +58,22 @@ export async function notifyApprovalRequested(n: ApprovalNotification): Promise<
     const to = settings?.approvalNotifyEmail;
     if (!to) return false;
 
+    const rawLocale = settings?.locale;
+    const locale: Locale = isLocale(rawLocale) ? rawLocale : 'en';
+    const texts = MAIL_TEXTS[locale];
+    const title = getDictionary(locale).skillTitles[n.skillKey] ?? n.skillTitle;
+
     await getEmailProvider().send({
       to,
-      subject: `Freigabe angefragt: ${n.skillTitle}`,
+      subject: texts.subject(title),
       text: [
-        `Ein Skill-Lauf wartet auf menschliche Freigabe.`,
+        texts.intro,
         '',
-        `Skill: ${n.skillTitle} (${n.skillKey})`,
-        `Grund: ${n.reason}`,
-        `Run: ${n.runId}`,
+        `${texts.skill}: ${title} (${n.skillKey})`,
+        `${texts.reason}: ${n.reason}`,
+        `${texts.run}: ${n.runId}`,
         '',
-        `Zur Entscheidung: Dashboard → Freigaben (/dashboard/approvals)`,
+        texts.decide,
       ].join('\n'),
     });
     return true;

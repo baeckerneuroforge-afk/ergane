@@ -21,12 +21,18 @@ import { withTenant } from '../tenant';
 import { retrieve, type RetrievedChunk } from './retrieve';
 
 export const NO_KNOWLEDGE_ANSWER =
-  'Dazu habe ich kein geprüftes Wissen in der Wissensbasis.';
+  'I have no verified knowledge about this in the knowledge base.';
+
+/** Wording persisted by earlier (German-default) releases — old chat rows
+ * still carry it, so the UI's no-knowledge check accepts it too. */
+export const LEGACY_NO_KNOWLEDGE_ANSWERS: readonly string[] = [
+  'Dazu habe ich kein geprüftes Wissen in der Wissensbasis.',
+];
 
 /**
  * CANONICAL sources format. Every grounded answer ends with exactly one line
  *
- *     Quellen: <Titel1>, <Titel2>, …
+ *     Sources: <title1>, <title2>, …
  *
  * appended deterministically by THIS layer (never left to the LLM — the system
  * prompt forbids the model to emit its own source list, and any line it emits
@@ -35,7 +41,12 @@ export const NO_KNOWLEDGE_ANSWER =
  * marked line is what persists the sources in the history; the chat UI — and
  * later the skill engine — parse it back via this marker.
  */
-export const SOURCES_MARKER = 'Quellen:';
+export const SOURCES_MARKER = 'Sources:';
+
+/** All markers that may occur in PERSISTED messages: the canonical English one
+ * plus the pre-English-default German one. Parse with these; write only the
+ * canonical SOURCES_MARKER. */
+export const SOURCES_MARKERS: readonly string[] = [SOURCES_MARKER, 'Quellen:'];
 
 const SYSTEM_PROMPT = `You are the knowledge assistant of this organization's internal knowledge base.
 
@@ -96,7 +107,7 @@ function buildUserMessage(question: string, chunks: RetrievedChunk[]): string {
 function stripModelSourceLines(text: string): string {
   return text
     .split('\n')
-    .filter((line) => !line.trim().startsWith(SOURCES_MARKER))
+    .filter((line) => !SOURCES_MARKERS.some((m) => line.trim().startsWith(m)))
     .join('\n')
     .trim();
 }

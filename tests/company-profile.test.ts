@@ -116,7 +116,7 @@ describe('setCompanyProfile / getCompanyProfile', () => {
         actorUserId: ADMIN,
         profile: { ...PROFILE, vatId: 'X'.repeat(51) },
       }),
-    ).rejects.toThrow(/USt-IdNr\. darf höchstens 50 Zeichen/);
+    ).rejects.toThrow(/VAT ID must be at most 50 characters/);
   });
 
   it('another tenant reads only nulls (RLS: settings are invisible)', async () => {
@@ -127,7 +127,7 @@ describe('setCompanyProfile / getCompanyProfile', () => {
 });
 
 describe('renderBusinessPdf', () => {
-  it('valid PDF with letterhead, positions, German totals and footer', () => {
+  it('valid PDF with letterhead, positions, totals and footer (en default; de labels via locale)', () => {
     const pdf = renderBusinessPdf({
       title: 'Angebot',
       sender: { ...PROFILE },
@@ -145,10 +145,10 @@ describe('renderBusinessPdf', () => {
     expect(text.startsWith('%PDF-1.4')).toBe(true);
     expect(text.trimEnd().endsWith('%%EOF')).toBe(true);
     expect(text).toContain('Hephaistos Systems GmbH'); // Briefkopf
-    expect(text).toContain('USt-IdNr.: DE123456789'); // Fußzeile
-    expect(text).toContain('4.800,00 EUR');
-    expect(text).toContain('5.280,50 EUR'); // Summe
-    expect(text).toContain('Seite 1/1');
+    expect(text).toContain('VAT ID: DE123456789'); // footer (en default)
+    expect(text).toContain('4,800.00 EUR');
+    expect(text).toContain('5,280.50 EUR'); // total
+    expect(text).toContain('Page 1/1');
     expect(text).toContain('Helvetica-Bold');
     // xref offset zeigt auf das 'xref'-Keyword.
     const startxref = Number(text.match(/startxref\n(\d+)/)![1]);
@@ -165,16 +165,32 @@ describe('renderBusinessPdf', () => {
     });
     const text = pdfText(pdf);
     expect(text).toContain('/Count 2');
-    expect(text).toContain('Seite 1/2');
-    expect(text).toContain('Seite 2/2');
-    expect(text).toContain('6.000,00 EUR');
+    expect(text).toContain('Page 1/2');
+    expect(text).toContain('Page 2/2');
+    expect(text).toContain('6,000.00 EUR');
   });
 
-  it('formatEur groups thousands German-style', () => {
-    expect(formatEur(0)).toBe('0,00 EUR');
-    expect(formatEur(1234.5)).toBe('1.234,50 EUR');
-    expect(formatEur(1234567.89)).toBe('1.234.567,89 EUR');
-    expect(formatEur(-950)).toBe('-950,00 EUR');
+  it('formatEur groups thousands per locale (en default, de opt-in)', () => {
+    expect(formatEur(0)).toBe('0.00 EUR');
+    expect(formatEur(1234.5)).toBe('1,234.50 EUR');
+    expect(formatEur(1234567.89)).toBe('1,234,567.89 EUR');
+    expect(formatEur(-950)).toBe('-950.00 EUR');
+    expect(formatEur(1234.5, 'de')).toBe('1.234,50 EUR');
+    expect(formatEur(-950, 'de')).toBe('-950,00 EUR');
+  });
+
+  it('de locale renders German table/footer labels', () => {
+    const pdf = renderBusinessPdf({
+      title: 'Angebot',
+      locale: 'de',
+      sender: { ...PROFILE },
+      positions: [{ beschreibung: 'Workshoptag', betragEur: 480.5 }],
+    });
+    const text = pdfText(pdf);
+    expect(text).toContain('USt-IdNr.: DE123456789');
+    expect(text).toContain('Seite 1/1');
+    expect(text).toContain('480,50 EUR');
+    expect(text).toContain('Gesamtsumme');
   });
 });
 
@@ -195,8 +211,8 @@ describe('skill integration', () => {
     const mail = fake.sent[0]!;
     const text = pdfText(mail.attachment!.content);
     expect(text).toContain('Hephaistos Systems GmbH');
-    expect(text).toContain('USt-IdNr.: DE123456789');
-    expect(text).toContain('4.800,00 EUR');
-    expect(mail.text).toContain('Mit freundlichen Grüßen\nHephaistos Systems GmbH');
+    expect(text).toContain('VAT ID: DE123456789');
+    expect(text).toContain('4,800.00 EUR');
+    expect(mail.text).toContain('Kind regards\nHephaistos Systems GmbH');
   });
 });

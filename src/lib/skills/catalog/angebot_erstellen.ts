@@ -12,8 +12,12 @@
 // PDF-Anhang über den Effekt-Provider (fake ohne RESEND_API_KEY, Resend mit).
 // Ohne email bleibt der Versand simuliert (voriges Verhalten). In beiden
 // Fällen läuft der Schritt erst NACH der menschlichen Freigabe.
+//
+// Document language: draft, e-mail and PDF follow the ORG locale
+// (org_settings.locale, default 'en') — customer-facing output, not the UI.
 import { getCompanyProfile } from '../../company';
-import { formatEur, getEmailProvider, renderBusinessPdf } from '../../effects';
+import { getOrgLocale } from '../../i18n/org';
+import { formatEur, getEmailProvider, renderBusinessPdf, type PdfLocale } from '../../effects';
 import type { SkillDef, SkillJson } from '../types';
 import { holeWissen, rolleAusInput } from './wissen';
 
@@ -25,7 +29,7 @@ export function emailAusInput(input: SkillJson): string | null {
 }
 
 export const ANGEBOT_GUARDRAIL_REASON =
-  'Externe Kommunikation — Angebot verlässt das Unternehmen, Freigabe erforderlich';
+  'External communication — the quote leaves the company, approval required';
 
 interface AngebotInput {
   kunde: string;
@@ -45,9 +49,60 @@ function parseInput(input: SkillJson): AngebotInput {
   return { kunde, leistung, betragEur };
 }
 
+/** Customer-facing wording per document language (org locale). */
+const TEXTS: Record<PdfLocale, {
+  docTitle: string;
+  draftFor: (kunde: string) => string;
+  service: (leistung: string) => string;
+  total: (amount: string) => string;
+  conditionsFromKb: string;
+  conditionsFallback: string;
+  dateLabel: string;
+  salutation: string;
+  bodyIntro: string;
+  totalLabel: string;
+  lookingForward: string;
+  regards: string;
+  subject: (amount: string) => string;
+  pdfFilename: string;
+}> = {
+  en: {
+    docTitle: 'Quote',
+    draftFor: (kunde) => `Quote for ${kunde}`,
+    service: (leistung) => `Service: ${leistung}`,
+    total: (amount) => `Quote total: ${amount} EUR`,
+    conditionsFromKb: 'Terms according to the knowledge base:',
+    conditionsFallback: 'Terms: standard terms (no specific knowledge visible).',
+    dateLabel: 'Date',
+    salutation: 'Dear Sir or Madam,',
+    bodyIntro: 'We are pleased to submit the following quote:',
+    totalLabel: 'Quote total',
+    lookingForward: 'We look forward to hearing from you.',
+    regards: 'Kind regards',
+    subject: (amount) => `Your quote for ${amount}`,
+    pdfFilename: 'quote.pdf',
+  },
+  de: {
+    docTitle: 'Angebot',
+    draftFor: (kunde) => `Angebot für ${kunde}`,
+    service: (leistung) => `Leistung: ${leistung}`,
+    total: (amount) => `Angebotssumme: ${amount} EUR`,
+    conditionsFromKb: 'Konditionen laut Wissensbasis:',
+    conditionsFallback: 'Konditionen: Standardkonditionen (kein spezifisches Wissen sichtbar).',
+    dateLabel: 'Datum',
+    salutation: 'Sehr geehrte Damen und Herren,',
+    bodyIntro: 'gerne unterbreiten wir Ihnen das folgende Angebot:',
+    totalLabel: 'Angebotssumme',
+    lookingForward: 'Wir freuen uns auf Ihre Rückmeldung.',
+    regards: 'Mit freundlichen Grüßen',
+    subject: (amount) => `Ihr Angebot über ${amount}`,
+    pdfFilename: 'angebot.pdf',
+  },
+};
+
 export const angebotErstellen: SkillDef = {
   key: 'angebot_erstellen',
-  title: 'Kundenangebot erstellen und versenden',
+  title: 'Create and send a customer quote',
   handlesMoney: false,
   // IMMER triggern: der Grund ist die externe Wirkung, nicht der Betrag.
   guardrail: () => ({ triggered: true, reason: ANGEBOT_GUARDRAIL_REASON }),
@@ -78,8 +133,10 @@ export const angebotErstellen: SkillDef = {
     {
       // liest nur: Angebotsentwurf aus Input + gefundenen Konditionen.
       name: 'angebot_entworfen',
-      run: async ({ input, state }) => {
+      run: async ({ orgId, tx, input, state }) => {
         const { kunde, leistung, betragEur } = parseInput(input);
+        const locale = await getOrgLocale(tx, orgId);
+        const texts = TEXTS[locale];
         const konditionsHinweise = (state.konditionen_geholt?.konditionen ?? []) as Array<{
           titel: string;
           auszug: string;
@@ -89,12 +146,12 @@ export const angebotErstellen: SkillDef = {
           leistung,
           betragEur,
           entwurf: [
-            `Angebot für ${kunde}`,
-            `Leistung: ${leistung}`,
-            `Angebotssumme: ${betragEur.toFixed(2)} EUR`,
+            texts.draftFor(kunde),
+            texts.service(leistung),
+            texts.total(betragEur.toFixed(2)),
             konditionsHinweise.length > 0
-              ? `Konditionen laut Wissensbasis:\n${konditionsHinweise.map((k) => `- [${k.titel}] ${k.auszug}`).join('\n')}`
-              : 'Konditionen: Standardkonditionen (kein spezifisches Wissen sichtbar).',
+              ? `${texts.conditionsFromKb}\n${konditionsHinweise.map((k) => `- [${k.titel}] ${k.auszug}`).join('\n')}`
+              : texts.conditionsFallback,
           ].join('\n'),
         };
       },
@@ -117,36 +174,42 @@ export const angebotErstellen: SkillDef = {
         }
 
         // Firmendaten aus den Einstellungen → Briefkopf/Fußzeile. Leeres
-        // Profil ⇒ neutrales PDF, nichts wird erfunden.
+        // Profil ⇒ neutrales PDF, nichts wird erfunden. Sprache = Org-Locale.
+        const locale = await getOrgLocale(tx, orgId);
+        const texts = TEXTS[locale];
         const firma = await getCompanyProfile(tx, orgId);
         const entwurf = typeof state.angebot_entworfen?.entwurf === 'string'
           ? state.angebot_entworfen.entwurf
-          : `Angebot für ${kunde}`;
-        const konditionen = entwurf
-          .split('\n')
-          .filter((z) => z.startsWith('Konditionen') || z.startsWith('- ['));
+          : texts.draftFor(kunde);
+        // Konditionen aus dem Retrieval-Step — nicht aus dem Entwurfstext
+        // geparst (sprachunabhängig).
+        const konditionsHinweise = (state.konditionen_geholt?.konditionen ?? []) as Array<{
+          titel: string;
+          auszug: string;
+        }>;
+        const konditionen = konditionsHinweise.length > 0
+          ? [texts.conditionsFromKb, ...konditionsHinweise.map((k) => `- [${k.titel}] ${k.auszug}`)]
+          : [texts.conditionsFallback];
         const pdf = renderBusinessPdf({
-          title: 'Angebot',
+          title: texts.docTitle,
+          locale,
           sender: firma,
           recipient: [kunde],
-          meta: [['Datum', new Date().toLocaleDateString('de-DE')]],
-          body: [
-            'Sehr geehrte Damen und Herren,',
-            'gerne unterbreiten wir Ihnen das folgende Angebot:',
-          ],
+          meta: [[texts.dateLabel, new Date().toLocaleDateString(locale === 'de' ? 'de-DE' : 'en-GB')]],
+          body: [texts.salutation, texts.bodyIntro],
           positions: [{ beschreibung: leistung, betragEur }],
-          totalLabel: 'Angebotssumme',
+          totalLabel: texts.totalLabel,
           closing: [
             ...konditionen,
-            'Wir freuen uns auf Ihre Rückmeldung.',
-            `Mit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
+            texts.lookingForward,
+            `${texts.regards}${firma.name ? `\n${firma.name}` : ''}`,
           ],
         });
         const result = await getEmailProvider().send({
           to: email,
-          subject: `Ihr Angebot über ${formatEur(betragEur)}`,
-          text: `${entwurf}\n\nMit freundlichen Grüßen${firma.name ? `\n${firma.name}` : ''}`,
-          attachment: { filename: 'angebot.pdf', content: pdf },
+          subject: texts.subject(formatEur(betragEur, locale)),
+          text: `${entwurf}\n\n${texts.regards}${firma.name ? `\n${firma.name}` : ''}`,
+          attachment: { filename: texts.pdfFilename, content: pdf },
         });
         return {
           versendet: true,

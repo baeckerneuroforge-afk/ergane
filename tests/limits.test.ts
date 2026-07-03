@@ -81,7 +81,7 @@ describe('chat limit', () => {
 
     await expect(
       answerQuestion({ orgId: ORG_A, actorId: 'u', question: 'Noch eine?' }),
-    ).rejects.toThrow(/Tageslimit erreicht: 2 Chat-Anfragen/);
+    ).rejects.toThrow(/Daily limit reached: 2 chat requests/);
 
     // Fremder Tenant zählt eigene Nutzung — bleibt frei.
     const other = await answerQuestion({ orgId: ORG_B, actorId: 'u', question: 'Geht das?' });
@@ -95,7 +95,7 @@ describe('ingest limit', () => {
     await ingestDocument({ orgId: ORG_A, actorId: 'u', title: 'Doku 1', text: 'Inhalt eins.', source: 'manual' });
     await expect(
       ingestDocument({ orgId: ORG_A, actorId: 'u', title: 'Doku 2', text: 'Inhalt zwei.', source: 'manual' }),
-    ).rejects.toThrow(/Tageslimit erreicht: 1 neue Dokumente/);
+    ).rejects.toThrow(/Daily limit reached: 1 new documents/);
   });
 });
 
@@ -109,6 +109,6 @@ describe('run limit', () => {
 
     await expect(
       startRun(ORG_A, 'angebot_erstellen', { kunde: 'K', leistung: 'L', betragEur: 10 }),
-    ).rejects.toThrow(/Tageslimit erreicht: 1 Skill-Läufe/);
+    ).rejects.toThrow(/Daily limit reached: 1 skill runs/);
   });
 });

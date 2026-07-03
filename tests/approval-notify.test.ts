@@ -87,7 +87,7 @@ describe('setApprovalNotifyEmail', () => {
     ).rejects.toThrow(/admin required/);
     await expect(
       setApprovalNotifyEmail({ orgId: ORG, actorUserId: ADMIN, email: 'kein-at-zeichen' }),
-    ).rejects.toThrow(/gültige E-Mail-Adresse/);
+    ).rejects.toThrow(/valid e-mail address/);
   });
 });
 
@@ -101,9 +101,9 @@ describe('notification on awaiting_approval', () => {
     expect(fake.sent).toHaveLength(1);
     const mail = fake.sent[0]!;
     expect(mail.to).toBe('team@firma.example');
-    expect(mail.subject).toContain('Freigabe angefragt');
+    expect(mail.subject).toContain('Approval requested');
     expect(mail.text).toContain('angebot_erstellen');
-    expect(mail.text).toContain('Externe Kommunikation');
+    expect(mail.text).toContain('External communication');
     expect(mail.text).toContain(handle.runId);
 
     // Freigabe + Abschluss unverändert; ohne input.email nur simulierter Versand.

@@ -201,6 +201,23 @@ export interface PdfSender {
   bank: string | null;
 }
 
+/** Document language of a rendered PDF — follows the ORG locale (org-wide
+ * output setting), never the UI cookie. Default 'en'. */
+export type PdfLocale = 'en' | 'de';
+
+interface PdfLabels {
+  description: string;
+  amount: string;
+  totalDefault: string;
+  vatId: string;
+  page: string;
+}
+
+const PDF_LABELS: Record<PdfLocale, PdfLabels> = {
+  en: { description: 'Description', amount: 'Amount', totalDefault: 'Total', vatId: 'VAT ID', page: 'Page' },
+  de: { description: 'Beschreibung', amount: 'Betrag', totalDefault: 'Gesamtsumme', vatId: 'USt-IdNr.', page: 'Seite' },
+};
+
 class PageBuilder {
   readonly pages: PageOps[] = [[]];
   private y = PAGE_HEIGHT - MARGIN;
@@ -250,14 +267,14 @@ class PageBuilder {
 
   /** Fußzeile auf jede Seite stempeln (nach der Paginierung — die Gesamtzahl
    * der Seiten ist erst dann bekannt). */
-  stampFooters(sender: PdfSender): void {
+  stampFooters(sender: PdfSender, labels: { vatId: string; page: string }): void {
     const footerLines: string[] = [];
     const identity = [sender.name, sender.address?.replace(/\n/g, ', ')]
       .filter(Boolean)
       .join(' · ');
     if (identity) footerLines.push(identity);
     const fiscal = [
-      sender.vatId ? `USt-IdNr.: ${sender.vatId}` : null,
+      sender.vatId ? `${labels.vatId}: ${sender.vatId}` : null,
       sender.bank?.replace(/\n/g, ' · ') ?? null,
     ]
       .filter(Boolean)
@@ -273,7 +290,7 @@ class PageBuilder {
         y -= SMALL_LEADING;
         drawText(ops, FONT_REGULAR, SMALL_SIZE, MARGIN, y, line);
       }
-      drawRightText(ops, FONT_REGULAR, SMALL_SIZE, PAGE_WIDTH - MARGIN, topY - SMALL_LEADING, `Seite ${i + 1}/${total}`);
+      drawRightText(ops, FONT_REGULAR, SMALL_SIZE, PAGE_WIDTH - MARGIN, topY - SMALL_LEADING, `${labels.page} ${i + 1}/${total}`);
     });
   }
 }
@@ -300,18 +317,23 @@ export interface BusinessPdfInput {
   body?: string[];
   /** Positionen; mit Summenzeile gerendert, wenn nicht leer. */
   positions?: BusinessPdfPosition[];
-  /** Label der Summenzeile (Default "Gesamtsumme"). */
+  /** Label der Summenzeile (Default: locale's "Total"/"Gesamtsumme"). */
   totalLabel?: string;
+  /** Document language for table headers/footer labels (default 'en'). */
+  locale?: PdfLocale;
   /** Fließtext nach der Tabelle (Konditionen, Grußformel). */
   closing?: string[];
 }
 
-/** 1234.5 → "1.234,50 EUR" (deutsches Zahlenformat, ohne Intl-Abhängigkeit). */
-export function formatEur(amount: number): string {
+/** 1234.5 → "1,234.50 EUR" (en, default) or "1.234,50 EUR" (de) — no Intl
+ * dependency, exact digits for the PDF metrics table. */
+export function formatEur(amount: number, locale: PdfLocale = 'en'): string {
   const sign = amount < 0 ? '-' : '';
   const [int = '0', frac = '00'] = Math.abs(amount).toFixed(2).split('.');
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `${sign}${grouped},${frac} EUR`;
+  const group = locale === 'de' ? '.' : ',';
+  const decimal = locale === 'de' ? ',' : '.';
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, group);
+  return `${sign}${grouped}${decimal}${frac} EUR`;
 }
 
 const NEUTRAL_SENDER: PdfSender = { name: null, address: null, vatId: null, bank: null };
@@ -322,6 +344,8 @@ const DESCRIPTION_WIDTH = CONTENT_WIDTH - 120;
 /** Geschäftsdokument (Angebot/Rechnung): Briefkopf, Positionen, Fußzeile. */
 export function renderBusinessPdf(input: BusinessPdfInput): Uint8Array {
   const sender = input.sender ?? NEUTRAL_SENDER;
+  const locale: PdfLocale = input.locale ?? 'en';
+  const labels = PDF_LABELS[locale];
   const b = new PageBuilder();
 
   // Briefkopf: Firmenname fett, Adresse klein darunter (nur Seite 1).
@@ -359,17 +383,17 @@ export function renderBusinessPdf(input: BusinessPdfInput): Uint8Array {
   // Positionstabelle.
   if (input.positions && input.positions.length > 0) {
     b.moveDown(LEADING / 2);
-    b.row(FONT_BOLD, BODY_SIZE, 'Beschreibung', 'Betrag');
+    b.row(FONT_BOLD, BODY_SIZE, labels.description, labels.amount);
     b.separator();
     let total = 0;
     for (const pos of input.positions) {
       total += pos.betragEur;
       const lines = wrapText(pos.beschreibung, BODY_SIZE, DESCRIPTION_WIDTH);
-      b.row(FONT_REGULAR, BODY_SIZE, lines[0] ?? '', formatEur(pos.betragEur));
+      b.row(FONT_REGULAR, BODY_SIZE, lines[0] ?? '', formatEur(pos.betragEur, locale));
       for (const rest of lines.slice(1)) b.text(FONT_REGULAR, BODY_SIZE, rest);
     }
     b.separator();
-    b.row(FONT_BOLD, BODY_SIZE, input.totalLabel ?? 'Gesamtsumme', formatEur(total));
+    b.row(FONT_BOLD, BODY_SIZE, input.totalLabel ?? labels.totalDefault, formatEur(total, locale));
   }
 
   // Schlusstext.
@@ -382,7 +406,7 @@ export function renderBusinessPdf(input: BusinessPdfInput): Uint8Array {
     }
   }
 
-  b.stampFooters(sender);
+  b.stampFooters(sender, labels);
   return buildPdf(b.pages);
 }
 
@@ -401,6 +425,6 @@ export function renderSimplePdf(title: string, lines: string[]): Uint8Array {
       b.text(FONT_REGULAR, BODY_SIZE, line);
     }
   }
-  b.stampFooters(NEUTRAL_SENDER);
+  b.stampFooters(NEUTRAL_SENDER, PDF_LABELS.en);
   return buildPdf(b.pages);
 }

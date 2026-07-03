@@ -47,16 +47,16 @@ import { getSlackUserLink, resolveSlackTeam, type SlackInstallationRef } from '.
 import { verifySlackSignature } from './verify';
 
 const USAGE =
-  'Nutzung: `/ergane frage <deine Frage>` oder `/ergane skill <key> {"…":…}`\n' +
-  'Beispiel: `/ergane skill beleg_kontieren {"beschreibung":"Lizenz","betragEur":1240}`';
+  'Usage: `/ergane frage <your question>` or `/ergane skill <key> {"…":…}`\n' +
+  'Example: `/ergane skill beleg_kontieren {"beschreibung":"license","betragEur":1240}`';
 
 const NOT_LINKED =
-  'Dein Slack-Konto ist nicht mit einem Mitglied dieser Organisation verknüpft. ' +
-  'Fragen zu offenem Wissen sind möglich — Skills starten oder freigeben nicht. ' +
-  'Ein Admin kann dich unter Einstellungen → Slack verknüpfen.';
+  'Your Slack account is not linked to a member of this organization. ' +
+  'Questions about open knowledge are possible — starting or approving skills is not. ' +
+  'An admin can link you under Settings → Slack.';
 
 const WORK_FAILED =
-  'Die Verarbeitung ist fehlgeschlagen. Bitte versuche es erneut oder wende dich an einen Admin.';
+  'Processing failed. Please try again or contact an admin.';
 
 /** Slack actor id for audit entries — always marks the external origin. */
 function slackActor(slackUserId: string | null | undefined): string {
@@ -256,8 +256,8 @@ export function approvalBlocks(skillKey: string, runId: string, reason: string):
       text: {
         type: 'mrkdwn',
         text:
-          `:hourglass_flowing_sand: Skill *${skillKey}* wartet auf Freigabe.\n` +
-          `Grund: ${reason}\nRun: \`${runId}\``,
+          `:hourglass_flowing_sand: Skill *${skillKey}* is awaiting approval.\n` +
+          `Reason: ${reason}\nRun: \`${runId}\``,
       },
     },
     {
@@ -268,14 +268,14 @@ export function approvalBlocks(skillKey: string, runId: string, reason: string):
           type: 'button',
           style: 'primary',
           action_id: 'ergane_approve',
-          text: { type: 'plain_text', text: 'Freigeben' },
+          text: { type: 'plain_text', text: 'Approve' },
           value: runId,
         },
         {
           type: 'button',
           style: 'danger',
           action_id: 'ergane_reject',
-          text: { type: 'plain_text', text: 'Ablehnen' },
+          text: { type: 'plain_text', text: 'Reject' },
           value: runId,
         },
       ],
@@ -310,7 +310,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
 
     const link = await getSlackUserLink(orgId, slackUserId);
     if (!(await claimCommand())) {
-      return json({ response_type: 'ephemeral', text: 'Diese Anfrage wird bereits verarbeitet.' });
+      return json({ response_type: 'ephemeral', text: 'This request is already being processed.' });
     }
     deferClaimCleanup(orgId);
 
@@ -346,7 +346,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
       },
     );
 
-    return json({ response_type: 'ephemeral', text: '… deine Frage wird bearbeitet.' });
+    return json({ response_type: 'ephemeral', text: '… your question is being processed.' });
   }
 
   if (subcommand === 'skill') {
@@ -360,7 +360,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
     try {
       skill = getSkill(skillKey);
     } catch {
-      return json({ response_type: 'ephemeral', text: `Unbekannter Skill: \`${skillKey}\`\n${USAGE}` });
+      return json({ response_type: 'ephemeral', text: `Unknown skill: \`${skillKey}\`\n${USAGE}` });
     }
 
     const argsRaw = rest.slice(1).join(' ').trim();
@@ -375,7 +375,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
       } catch {
         return json({
           response_type: 'ephemeral',
-          text: `Argumente müssen ein JSON-Objekt sein.\n${USAGE}`,
+          text: `Arguments must be a JSON object.\n${USAGE}`,
         });
       }
     }
@@ -385,7 +385,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
     input = { ...input, rolle: link.role };
 
     if (!(await claimCommand())) {
-      return json({ response_type: 'ephemeral', text: 'Diese Anfrage wird bereits verarbeitet.' });
+      return json({ response_type: 'ephemeral', text: 'This request is already being processed.' });
     }
     deferClaimCleanup(orgId);
 
@@ -407,11 +407,11 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
           const approval = await withTenant(orgId, (tx) =>
             tx.approval.findFirst({ where: { runId: handle.runId, status: 'pending' } }),
           );
-          const reason = approval?.reason ?? 'Freigabe erforderlich';
-          const requiredRole = approval?.requiredRole ? ` (Rolle: ${approval.requiredRole}+)` : '';
+          const reason = approval?.reason ?? 'Approval required';
+          const requiredRole = approval?.requiredRole ? ` (role: ${approval.requiredRole}+)` : '';
           await postSlackMessage({
             channel,
-            text: `Skill ${skill.key} wartet auf Freigabe${requiredRole}: ${reason}`,
+            text: `Skill ${skill.key} is awaiting approval${requiredRole}: ${reason}`,
             blocks: approvalBlocks(skill.key, handle.runId, `${reason}${requiredRole}`),
             botTokenRef,
           });
@@ -433,7 +433,7 @@ export async function handleSlackCommands(req: Request): Promise<Response> {
       },
     );
 
-    return json({ response_type: 'ephemeral', text: `… Skill \`${skill.key}\` wird gestartet.` });
+    return json({ response_type: 'ephemeral', text: `… skill \`${skill.key}\` is starting.` });
   }
 
   return json({ response_type: 'ephemeral', text: USAGE });
@@ -534,9 +534,9 @@ export async function handleSlackInteractions(req: Request): Promise<Response> {
           resultStatus: handle.status,
         });
 
-        const verb = decision === 'approved' ? 'freigegeben' : 'abgelehnt';
+        const verb = decision === 'approved' ? 'approved' : 'rejected';
         await notify(
-          `Run \`${runId}\` wurde von <@${slackUserId}> ${verb} → Status: *${handle.status}*`,
+          `Run \`${runId}\` was ${verb} by <@${slackUserId}> → status: *${handle.status}*`,
           false,
         );
       } catch (err) {
@@ -549,7 +549,7 @@ export async function handleSlackInteractions(req: Request): Promise<Response> {
           decision,
           reason: message,
         });
-        await notify(`Keine Berechtigung oder ungültiger Zustand: ${message}`, true);
+        await notify(`No permission or invalid state: ${message}`, true);
       }
     },
     {

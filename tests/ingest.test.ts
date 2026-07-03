@@ -171,7 +171,7 @@ describe('fail-closed handling', () => {
   it('unsupported extension is rejected', async () => {
     await expect(
       extractText({ filename: 'malware.exe', mimeType: 'application/octet-stream', data: fixture('sample.txt') }),
-    ).rejects.toThrow(/Nicht unterstütztes Format/);
+    ).rejects.toThrow(/Unsupported format/);
   });
 
   it('corrupt bytes behind a valid extension are rejected by the parser', async () => {

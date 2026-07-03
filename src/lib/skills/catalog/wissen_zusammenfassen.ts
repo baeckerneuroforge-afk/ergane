@@ -15,6 +15,7 @@
 // soll kein Chat-Modell hängen — dasselbe Muster wie die Kontierungs-Regeln
 // in beleg_kontieren.
 import { NO_KNOWLEDGE_ANSWER, SOURCES_MARKER } from '../../rag';
+import { getOrgLocale } from '../../i18n/org';
 import type { SkillDef, SkillJson } from '../types';
 import { holeWissen, rolleAusInput, type WissensTreffer } from './wissen';
 
@@ -26,7 +27,7 @@ function parseInput(input: SkillJson): { frage: string } {
 
 export const wissenZusammenfassen: SkillDef = {
   key: 'wissen_zusammenfassen',
-  title: 'Wissen zusammenfassen',
+  title: 'Summarize knowledge',
   handlesMoney: false,
   steps: [
     {
@@ -51,8 +52,9 @@ export const wissenZusammenfassen: SkillDef = {
     {
       // liest nur: strukturiert die Treffer zu einer Zusammenfassung.
       name: 'zusammenfassung_erstellt',
-      run: async ({ input, state }) => {
+      run: async ({ orgId, tx, input, state }) => {
         const { frage } = parseInput(input);
+        const locale = await getOrgLocale(tx, orgId);
         const treffer = (state.wissen_abgerufen?.treffer ?? []) as WissensTreffer[];
         if (treffer.length === 0) {
           // Ehrlich und leak-frei: exakt die kanonische Kein-Wissen-Antwort,
@@ -62,7 +64,10 @@ export const wissenZusammenfassen: SkillDef = {
         const quellen = [...new Set(treffer.map((t) => t.titel))];
         const punkte = treffer.map((t) => `- [${t.titel}] ${t.auszug}`);
         return {
-          zusammenfassung: `Zusammenfassung zu „${frage}":\n${punkte.join('\n')}`,
+          zusammenfassung:
+            locale === 'de'
+              ? `Zusammenfassung zu „${frage}":\n${punkte.join('\n')}`
+              : `Summary for "${frage}":\n${punkte.join('\n')}`,
           quellen,
         };
       },

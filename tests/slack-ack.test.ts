@@ -177,7 +177,7 @@ describe('ack-then-work: the 200 comes first, the work afterwards', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { response_type: string; text: string };
     expect(body.response_type).toBe('ephemeral');
-    expect(body.text).toContain('bearbeitet');
+    expect(body.text).toContain('processed');
     expect(posted).toHaveLength(0);
 
     await drainDeferredWork();
@@ -254,7 +254,7 @@ describe('idempotency: duplicate deliveries execute the work exactly once', () =
     const second = await handleSlackCommands(commandRequest(TEAM_A, 'trig_dup_1', text));
     expect(second.status).toBe(200);
     const secondBody = (await second.json()) as { text: string };
-    expect(secondBody.text).toContain('bereits verarbeitet');
+    expect(secondBody.text).toContain('already being processed');
 
     await drainDeferredWork();
     expect(await withTenant(ORG_A, (tx) => tx.skillRun.count())).toBe(1);
@@ -332,7 +332,7 @@ describe('deferWork: failures are contained, logged, and reported to the user', 
     // The poster rejects the ANSWER post (contains the sources line) but lets
     // the failure notification through.
     setSlackPoster(async (msg) => {
-      if (msg.text.includes('Quellen:')) throw new Error('slack api down');
+      if (msg.text.includes('Sources:')) throw new Error('slack api down');
       posted.push(msg);
     });
 
@@ -341,7 +341,7 @@ describe('deferWork: failures are contained, logged, and reported to the user', 
 
     await drainDeferredWork();
     const failureNote = posted.find((m) => m.ephemeralUserId === LEAD.slackId);
-    expect(failureNote?.text).toContain('fehlgeschlagen');
+    expect(failureNote?.text).toContain('failed');
     expect(errorLog).toHaveBeenCalled();
     errorLog.mockRestore();
   });

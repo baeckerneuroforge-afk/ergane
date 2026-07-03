@@ -132,7 +132,7 @@ describe('fail-closed paths', () => {
         { filename: 'scan.pdf', mimeType: 'application/pdf', data: fixture('scan.pdf') },
         { ocr: broken },
       ),
-    ).rejects.toThrow(/OCR fehlgeschlagen/);
+    ).rejects.toThrow(/OCR failed/);
   });
 
   it('an empty transcription ⇒ rejected (no empty document)', async () => {
@@ -141,7 +141,7 @@ describe('fail-closed paths', () => {
         { filename: 'scan.pdf', mimeType: 'application/pdf', data: fixture('scan.pdf') },
         { ocr: new FakeOcrProvider('   ') },
       ),
-    ).rejects.toThrow(/keinen lesbaren Text/);
+    ).rejects.toThrow(/no readable text/);
   });
 
   it('cost guard: a scan beyond OCR_MAX_PAGES is rejected BEFORE any OCR call', async () => {

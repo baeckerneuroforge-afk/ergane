@@ -156,7 +156,7 @@ export interface SetApprovalNotifyEmailInput {
 export async function setApprovalNotifyEmail(input: SetApprovalNotifyEmailInput): Promise<void> {
   const email = input.email?.trim() || null;
   if (email !== null && (email.length > 320 || !EMAIL_RE.test(email))) {
-    throw new Error('Benachrichtigungs-Adresse muss eine gültige E-Mail-Adresse sein.');
+    throw new Error('The notification address must be a valid e-mail address.');
   }
 
   await withTenant(input.orgId, async (tx) => {

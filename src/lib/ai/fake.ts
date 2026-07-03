@@ -77,11 +77,13 @@ export class FakeChatProvider implements ChatProvider {
         .find((l) => l.startsWith('[')) ?? null;
 
     if (!firstContextLine) {
-      return 'Dazu habe ich kein geprüftes Wissen in der Wissensbasis.';
+      // Mirrors NO_KNOWLEDGE_ANSWER (src/lib/rag/answer.ts) — duplicated
+      // literal to avoid an ai → rag import cycle.
+      return 'I have no verified knowledge about this in the knowledge base.';
     }
     // Echo the passage WITHOUT its [title] prefix: like the real model, the
-    // fake emits only answer text — the canonical "Quellen: …" line is appended
+    // fake emits only answer text — the canonical "Sources: …" line is appended
     // by the RAG layer (answerQuestion), never by a chat provider.
-    return `Laut der Wissensbasis: ${firstContextLine.replace(/^\[[^\]]*\]\s*/, '')}`;
+    return `According to the knowledge base: ${firstContextLine.replace(/^\[[^\]]*\]\s*/, '')}`;
   }
 }
