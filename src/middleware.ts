@@ -10,6 +10,12 @@ import { buildCsp, cspHeaderName, generateCspNonce } from '@/lib/csp';
 // their signature (src/lib/slack/handlers.ts, src/lib/clerk/webhooks.ts,
 // fail-closed) before anything runs.
 const isPublicRoute = createRouteMatcher([
+  // Öffentliche Seiten: Landing + Rechtsseiten (kein Tenant-Bezug; die
+  // Landing leitet eingeloggte Nutzer selbst ins Dashboard weiter).
+  '/',
+  '/impressum',
+  '/datenschutz',
+  '/avv',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/slack(.*)',
