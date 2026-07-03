@@ -16,6 +16,9 @@ const isPublicRoute = createRouteMatcher([
   '/api/clerk(.*)',
   // Uptime checks — returns only up/down, no tenant data (Phase 13).
   '/api/health',
+  // Vercel Cron — authenticates itself via CRON_SECRET (fail-closed in the
+  // route; without the secret it answers 503/401, never runs).
+  '/api/cron(.*)',
 ]);
 const isOrgSelectRoute = createRouteMatcher(['/select-org(.*)']);
 
