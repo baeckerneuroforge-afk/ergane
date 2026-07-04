@@ -16,11 +16,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../src/lib/prisma'; // app_user — the system under test
 import { withTenant } from '../src/lib/tenant';
+// Single source of truth for the tenant-table set — shared with the Security
+// view's live RLS check, so the two can never drift.
+import { TENANT_TABLES } from '../src/lib/security/checks';
 
 // Two tenants. Fixed UUIDs make assertions deterministic.
 const ORG_A = '11111111-1111-4111-8111-111111111111';
 const ORG_B = '22222222-2222-4222-8222-222222222222';
-const TENANT_TABLES = ['organizations', 'memberships', 'knowledge_items', 'audit_log'];
 
 // Privileged connection — superuser bypasses RLS; used ONLY for reset + the
 // independent trigger proof.

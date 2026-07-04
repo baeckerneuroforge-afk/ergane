@@ -13,6 +13,7 @@ export const de: Dictionary = {
     approvals: 'Freigaben',
     value: 'Wertbeitrag',
     audit: 'Audit',
+    security: 'Sicherheit',
     settings: 'Einstellungen',
     runDetail: 'Ausführung',
     sections: {
@@ -29,6 +30,7 @@ export const de: Dictionary = {
       approvals: 'Handelnde Schritte, die auf eine menschliche Entscheidung warten',
       value: 'Was die Automatisierung spart — Stunden und Dollar, nur aus Live-Läufen',
       audit: 'Append-only Protokoll — nichts wird verändert oder gelöscht',
+      security: 'Was strukturell abgesichert ist — und wie wir es belegen',
       settings: 'Freigabe-Regeln, Sichtbarkeit, Rollen, Slack, DSGVO',
       runDetail: 'Schritt-Timeline, Freigaben und Ergebnis dieses Laufs',
     },
@@ -335,6 +337,70 @@ export const de: Dictionary = {
     newer: '← neuere',
     older: 'ältere →',
     page: (page: number, total: number) => `Seite ${page} / ${total}`,
+  },
+
+  security: {
+    intro:
+      'Die Eigenschaften, die dieses System garantieren soll — und für jede: wie wir es belegen. Wir behaupten kein Zertifikat, sondern verweisen auf die überprüfbare Grundlage: eine Live-Abfrage gegen die laufende Datenbank, die automatisierte Testsuite oder die Architektur selbst.',
+    honestyTitle: 'Wie diese Seite zu lesen ist',
+    honestyBody:
+      'Grün mit Punkt heißt: wir haben die laufende Datenbank gerade abgefragt und es gilt jetzt — und es hätte genauso rot sein können. Ein Stahl-Badge ohne Punkt heißt: die Eigenschaft ist durch die Tests oder die Architektur abgesichert, nicht durch eine momentane Prüfung. Wir zeigen niemals ein grünes Live-Signal für etwas, das wir nicht wirklich live geprüft haben.',
+    basisLabel: 'Grundlage',
+    statusLabel: 'Status',
+    basis: {
+      live: 'Live-Prüfung gegen die Datenbank',
+      test: 'Durch die automatisierte Testsuite abgesichert',
+      architecture: 'Durch die Architektur abgesichert',
+    },
+    chip: {
+      liveVerified: 'Live geprüft',
+      secured: 'Abgesichert',
+      fail: 'Prüfung fehlgeschlagen',
+      unknown: 'Jetzt nicht prüfbar',
+    },
+    proofTitle: 'Überprüfbare Grundlage',
+    proofBody:
+      'Diese Garantien sind keine Folien-Behauptung. Das Tenant-Isolation-Gate führt bei jedem Push und jedem Pull Request die komplette Testsuite als die am geringsten privilegierte Datenbankrolle aus; bricht die Isolation je, wird der Build rot.',
+    proofTestCount: (n: number) => `${n} automatisierte Tests`,
+    proofRepoNote: 'Der Code, die Tests und das CI-Gate liegen alle im Repository.',
+    liveNote:
+      'Die Live-Prüfungen lesen nur aggregierte Schema-Struktur (Tabellennamen, RLS-Flags, Existenz von Policies und Triggern) als der am geringsten privilegierte app_user. Sie lesen niemals einen Kundendatensatz, eine Inhaltszeile oder eine andere Organisation.',
+    unknownHint:
+      'Eine Live-Prüfung konnte gerade nicht laufen (z. B. war die Datenbank nicht erreichbar). Wir zeigen das an, statt ersatzweise auf Grün zu gehen.',
+    props: {
+      tenantIsolation: {
+        title: 'Mandantentrennung',
+        body: 'Jede Organisation sieht nur ihre eigenen Daten. Das erzwingt die Datenbank selbst mit Row-Level Security im FORCE-Modus auf allen Mandanten-Tabellen — nicht der Anwendungscode, der einen Fehler haben könnte.',
+        evidenceLive: (secured: number, total: number) =>
+          `${secured}/${total} Mandanten-Tabellen mit RLS + FORCE`,
+        evidenceFail: (secured: number, total: number) =>
+          `Nur ${secured}/${total} Mandanten-Tabellen haben RLS + FORCE — erwartet werden alle ${total}.`,
+      },
+      auditImmutability: {
+        title: 'Manipulationssicheres Audit-Log',
+        body: 'Das Audit-Log ist append-only. Es gibt keine Policy, die Ändern oder Löschen erlaubt, und zwei Datenbank-Trigger weisen jeden Versuch ab — selbst durch den Tabelleneigentümer. Historie lässt sich nicht heimlich umschreiben.',
+        evidenceLive: 'Append-only: keine UPDATE/DELETE-Policy, beide Schutz-Trigger vorhanden',
+        evidenceFail: 'Die Append-only-Garantie ist nicht intakt — eine UPDATE/DELETE-Policy oder ein fehlender Schutz-Trigger wurde gefunden.',
+      },
+      moneyFailsafe: {
+        title: 'Geld-Failsafe',
+        body: 'Ein Skill, der Geld anfasst, kann niemals ohne menschliche Entscheidung handeln — erzwungen beim Schreiben einer Policy und erneut zur Laufzeit (Defense in Depth). Ein Geld-Skill kann nicht auf „nie Freigabe nötig" gestellt werden: diese Einstellung wird zur Laufzeit überstimmt und ins Audit-Log geschrieben.',
+        evidence: (n: number) =>
+          `${n} geldberührende ${n === 1 ? 'Skill' : 'Skills'}, jeder abgesichert oder fail-closed`,
+        basisDetail: 'Festgehalten durch die Policy-, Engine- und Skill-Effekt-Tests.',
+      },
+      antiHallucination: {
+        title: 'Anti-Halluzination',
+        body: 'Unter der Relevanzschwelle wird das Sprachmodell nie aufgerufen — das System sagt, dass es etwas nicht weiß, statt eine Antwort zu erfinden. Jede Antwort trägt nur ihre zitierten Quellen.',
+        evidence: (threshold: number) => `Relevanzschwelle: ${threshold}`,
+        basisDetail: 'In die Retrieval-Pipeline eingebaut; durch die Answer-Trace-Tests abgedeckt.',
+      },
+      euDataResidency: {
+        title: 'EU-Datenhaltung',
+        body: 'Daten liegen in Postgres in der EU (Neon, Frankfurt). Kundendaten werden nicht zum Training von Modellen verwendet. Das ist eine Deployment- und Vertrags-Tatsache — klar benannt, nicht als Live-Prüfung dargestellt.',
+        evidence: 'Postgres in der EU · kein Training auf Kundendaten',
+      },
+    },
   },
 
   settings: {

@@ -12,6 +12,7 @@ export const en = {
     approvals: 'Approvals',
     value: 'Value',
     audit: 'Audit',
+    security: 'Security',
     settings: 'Settings',
     runDetail: 'Run',
     sections: {
@@ -28,6 +29,7 @@ export const en = {
       approvals: 'Acting steps waiting for a human decision',
       value: 'What automation saves — hours and dollars, from live runs only',
       audit: 'Append-only log — nothing is changed or deleted',
+      security: 'What is structurally secured — and how we can prove it',
       settings: 'Approval rules, visibility, roles, Slack, GDPR',
       runDetail: 'Step timeline, approvals and result of this run',
     },
@@ -333,6 +335,75 @@ export const en = {
     newer: '← newer',
     older: 'older →',
     page: (page: number, total: number) => `Page ${page} / ${total}`,
+  },
+
+  security: {
+    intro:
+      "The properties this system is built to guarantee — and, for each, how we can prove it. We don't claim a certificate; we point at the verifiable basis: a live query against the running database, the automated test suite, or the architecture itself.",
+    // The honesty banner — states the rule the whole page follows.
+    honestyTitle: 'How to read this page',
+    honestyBody:
+      'Green with a dot means we just queried the live database and it holds right now — and it could equally have come back red. A steel badge without a dot means the property is secured by the test suite or the architecture, not by a momentary check. We never show a live green light for something we did not actually verify live.',
+    // Column-ish labels used inside each property card.
+    basisLabel: 'Basis',
+    statusLabel: 'Status',
+    basis: {
+      live: 'Live check against the database',
+      test: 'Secured by the automated test suite',
+      architecture: 'Secured by the architecture',
+    },
+    chip: {
+      liveVerified: 'Verified live',
+      secured: 'Secured',
+      fail: 'Check failed',
+      unknown: 'Not verifiable now',
+    },
+    // The verifiable-basis footer.
+    proofTitle: 'Verifiable basis',
+    proofBody:
+      'These guarantees are not a claim on a slide. The tenant-isolation gate runs the full test suite as the least-privileged database role on every push and pull request; if isolation ever breaks, the build turns red.',
+    proofTestCount: (n: number) => `${n} automated tests`,
+    proofRepoNote: 'The code, the tests and the CI gate are all in the repository.',
+    liveNote:
+      'The live checks read only aggregated schema structure (table names, RLS flags, policy and trigger existence) as the least-privileged app_user. They never read a customer record, a row of content, or another organization.',
+    unknownHint:
+      'A live check could not run right now (for example, the database was unreachable). We show this instead of defaulting to green.',
+    // ---- The five properties ----
+    props: {
+      tenantIsolation: {
+        title: 'Tenant separation',
+        body: 'Every organization can see only its own data. This is enforced in the database itself with Row-Level Security in FORCE mode on all tenant tables — not in application code, which could have a bug.',
+        // interpolated with the live count
+        evidenceLive: (secured: number, total: number) =>
+          `${secured}/${total} tenant tables with RLS + FORCE`,
+        evidenceFail: (secured: number, total: number) =>
+          `Only ${secured}/${total} tenant tables have RLS + FORCE — expected all ${total}.`,
+      },
+      auditImmutability: {
+        title: 'Tamper-proof audit trail',
+        body: 'The audit log is append-only. There is no policy that permits changing or deleting an entry, and two database triggers reject any attempt — even from the table owner. History cannot be quietly rewritten.',
+        evidenceLive: 'Append-only: no UPDATE/DELETE policy, both guard triggers present',
+        evidenceFail: 'The append-only guarantee is not intact — an UPDATE/DELETE policy or a missing guard trigger was found.',
+      },
+      moneyFailsafe: {
+        title: 'Money failsafe',
+        body: 'A skill that touches money can never act without a human decision — enforced both when a policy is written and again at runtime (defense in depth). A money skill cannot be set to "never require approval": that setting is overridden at runtime and logged to the audit trail.',
+        evidence: (n: number) =>
+          `${n} money-touching ${n === 1 ? 'skill' : 'skills'}, each gated or fail-closed`,
+        basisDetail: 'Pinned by the policy, engine and skill-effect tests.',
+      },
+      antiHallucination: {
+        title: 'Anti-hallucination',
+        body: 'Below the relevance threshold the language model is never called — the system says it does not know rather than inventing an answer. Every answer carries only its cited sources.',
+        evidence: (threshold: number) => `Relevance threshold: ${threshold}`,
+        basisDetail: 'Built into the retrieval pipeline; covered by the answer-trace tests.',
+      },
+      euDataResidency: {
+        title: 'EU data residency',
+        body: 'Data is stored in Postgres in the EU (Neon, Frankfurt). Customer data is not used to train models. This is a deployment and contract fact — stated plainly, not presented as a live check.',
+        evidence: 'Postgres in the EU · no training on customer data',
+      },
+    },
   },
 
   settings: {

@@ -73,6 +73,36 @@ export function SimulationBadge({ locale }: { locale: Locale }) {
   );
 }
 
+// Security view status chip. Deliberately distinguishes a LIVE verified pass
+// (green dot — "we just checked the running database") from a test/architecture-
+// secured pass (steel-indigo, NO green dot — "secured, but not a momentary
+// check"). A live check can also be red ('fail') or amber ('unknown', e.g. the
+// DB was unreachable). We never render a green live dot for something that was
+// not actually queried live — that separation is the honesty of the view.
+export function SecurityStatusChip({
+  basis,
+  status,
+  locale,
+}: {
+  basis: 'live' | 'test' | 'architecture';
+  status: 'pass' | 'fail' | 'unknown';
+  locale: Locale;
+}) {
+  const s = getDictionary(locale).security.chip;
+  if (status === 'fail') {
+    return <span className="chip chip--dot chip--red">{s.fail}</span>;
+  }
+  if (status === 'unknown') {
+    return <span className="chip chip--dot chip--amber">{s.unknown}</span>;
+  }
+  // status === 'pass'
+  if (basis === 'live') {
+    return <span className="chip chip--dot chip--green">{s.liveVerified}</span>;
+  }
+  // test / architecture: secured, but NOT a live status — no green dot.
+  return <span className="chip chip--indigo">{s.secured}</span>;
+}
+
 /** Monetary amount of a run input (beleg_kontieren convention), if present. */
 export function amountOfInput(input: unknown): number | null {
   if (input && typeof input === 'object' && 'betragEur' in input) {

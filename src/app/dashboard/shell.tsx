@@ -97,6 +97,12 @@ const SECTIONS: NavSection[] = [
         icon: <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
       },
       {
+        href: '/dashboard/security',
+        key: 'security',
+        adminOnly: true,
+        icon: <Icon d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4zM9 12l2 2 4-4" />,
+      },
+      {
         href: '/dashboard/settings',
         key: 'settings',
         adminOnly: true,
