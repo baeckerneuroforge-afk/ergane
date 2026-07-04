@@ -21,6 +21,8 @@
 // Trade-off: der Embedding-Call läuft innerhalb der Step-Transaktion (mit dem
 // Fake-Provider lokal/instant; mit Voyage ein kurzer HTTP-Call gegen das
 // 15s-Transaktions-Timeout) — der Preis für die Atomarität des Steps.
+import type { DocumentSource } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { getEmbeddingProvider } from '../../ai';
 import { assertDimensions, toVectorLiteral } from '../../rag/ingest';
 import type { Tx } from '../../tenant';
@@ -43,7 +45,18 @@ export function rolleAusInput(input: SkillJson): string {
 
 export async function holeWissen(
   tx: Tx,
-  opts: { orgId: string; frage: string; rolle: string; k?: number },
+  opts: {
+    orgId: string;
+    frage: string;
+    rolle: string;
+    k?: number;
+    /**
+     * OPTIONAL: nur Dokumente dieser Quelle (z. B. 'transcript') als Kontext.
+     * Weggelassen ⇒ alle Quellen (bisheriges Verhalten, unverändert). Der Filter
+     * ist ADDITIV zum Rollen-Disclosure-Filter — beide müssen gelten.
+     */
+    source?: DocumentSource;
+  },
 ): Promise<WissensTreffer[]> {
   const frage = opts.frage.trim();
   if (!frage) throw new Error('holeWissen: frage is required.');
@@ -54,6 +67,11 @@ export async function holeWissen(
   assertDimensions([queryVector], embedder);
   const literal = toVectorLiteral(queryVector);
   const roleText = KNOWN_ROLES.includes(opts.rolle) ? opts.rolle : '';
+  // Additiver Quellen-Filter, nur wenn gesetzt. Prisma.empty ⇒ keine
+  // zusätzliche Bedingung, also exakt das bisherige Verhalten.
+  const sourceFilter = opts.source
+    ? Prisma.sql`AND d."source" = ${opts.source}::"document_source"`
+    : Prisma.empty;
 
   const rows = await tx.$queryRaw<
     Array<{ document_title: string; content: string; similarity: number }>
@@ -66,6 +84,7 @@ export async function holeWissen(
     JOIN "documents" d
       ON d."id" = c."document_id" AND d."org_id" = c."org_id"
     WHERE c."org_id" = ${opts.orgId}::uuid
+      ${sourceFilter}
       AND (
         d."visibility" = 'open'
         OR EXISTS (

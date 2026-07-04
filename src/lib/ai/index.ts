@@ -29,7 +29,20 @@ export function getEmbeddingProvider(): EmbeddingProvider {
   return new FakeEmbeddingProvider();
 }
 
+// Test-only override slot. Tests that must exercise a skill's LLM step without a
+// network call (CI never calls a real API) can install a deterministic
+// ChatProvider here instead of depending on the ANTHROPIC_API_KEY env. Kept
+// tiny and clearly named; it is ignored entirely in production paths because
+// tests are the only caller that sets it. Always reset it in afterAll/afterEach.
+let chatProviderOverride: ChatProvider | null = null;
+
+/** TEST ONLY: force getChatProvider() to return `provider` (or clear with null). */
+export function __setChatProviderForTests(provider: ChatProvider | null): void {
+  chatProviderOverride = provider;
+}
+
 export function getChatProvider(): ChatProvider {
+  if (chatProviderOverride) return chatProviderOverride;
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) return new AnthropicChatProvider(key);
   requireFakeAllowed('getChatProvider', 'ANTHROPIC_API_KEY');

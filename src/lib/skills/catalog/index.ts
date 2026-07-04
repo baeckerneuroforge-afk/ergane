@@ -5,6 +5,7 @@ import type { SkillDef } from '../types';
 import { angebotErstellen } from './angebot_erstellen';
 import { belegKontieren } from './beleg_kontieren';
 import { rechnungErstellen } from './rechnung_erstellen';
+import { transkriptZuFramework } from './transkript_zu_framework';
 import { wissenZusammenfassen } from './wissen_zusammenfassen';
 
 const SKILLS: Record<string, SkillDef> = {
@@ -12,6 +13,7 @@ const SKILLS: Record<string, SkillDef> = {
   [wissenZusammenfassen.key]: wissenZusammenfassen,
   [angebotErstellen.key]: angebotErstellen,
   [rechnungErstellen.key]: rechnungErstellen,
+  [transkriptZuFramework.key]: transkriptZuFramework,
 };
 
 export function getSkill(key: string): SkillDef {

@@ -20,6 +20,22 @@ import type { Tx } from '../tenant';
 /** JSON-serializable detail/state payloads (stored in jsonb columns). */
 export type SkillJson = Record<string, unknown>;
 
+/**
+ * Context for the PRE-transaction phase of a step (StepDef.prepare). It carries
+ * NO `tx` on purpose: prepare() runs BEFORE withTenant() opens, so it CANNOT —
+ * and physically has no handle to — touch tenant data in a transaction. Its job
+ * is the expensive, slow, network-bound work (an LLM/tool call) that must never
+ * sit inside the 15s tenant transaction (see the answerQuestion pattern in
+ * src/lib/rag/answer.ts). Whatever it returns is handed to run() as `prepared`.
+ */
+export interface PrepareContext {
+  orgId: string;
+  /** The run's input, exactly as passed to startRun(). */
+  input: SkillJson;
+  /** Details of all previously completed steps, keyed by step name. */
+  state: Record<string, SkillJson>;
+}
+
 export interface SkillContext {
   orgId: string;
   /** Tenant-bound transaction from withTenant() — the ONLY way steps touch data. */
@@ -28,6 +44,13 @@ export interface SkillContext {
   input: SkillJson;
   /** Details of all previously completed steps, keyed by step name. */
   state: Record<string, SkillJson>;
+  /**
+   * The value returned by this step's OPTIONAL prepare() hook, produced BEFORE
+   * the transaction opened. `undefined` when the step has no prepare() (every
+   * pre-LLM skill). run() writes this pre-computed result atomically — it must
+   * NOT itself make the expensive call again.
+   */
+  prepared?: SkillJson;
 }
 
 export interface StepDef {
@@ -37,6 +60,21 @@ export interface StepDef {
    * guardrail/approval mechanic. Default false = read-only.
    */
   acts?: boolean;
+  /**
+   * OPTIONAL pre-transaction phase. When present, the engine calls it BEFORE
+   * opening the step's withTenant() transaction, with a Tx-FREE context, and
+   * passes its result into run() as ctx.prepared. This is the sanctioned place
+   * for the one thing that must never happen inside a tenant transaction: a
+   * slow network call (LLM / external tool). The pattern mirrors answerQuestion
+   * (src/lib/rag/answer.ts): expensive call first, then a short transaction
+   * writes only the result. Steps WITHOUT prepare() are unchanged — run() alone
+   * executes inside the transaction, exactly as before.
+   *
+   * prepare() must not have real-world side effects for a read-only (acts:false)
+   * step beyond the network read it performs; for acting steps it runs only
+   * AFTER the approval gate cleared (same ordering guarantee as run()).
+   */
+  prepare?: (ctx: PrepareContext) => Promise<SkillJson>;
   /** Executes the step; the returned detail is persisted on the skill_step row. */
   run: (ctx: SkillContext) => Promise<SkillJson>;
   /**

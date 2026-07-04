@@ -385,9 +385,18 @@ async function executeFrom(
     }
 
     try {
+      // PRE-TRANSACTION PHASE (the non-negotiable rule): if the step declares a
+      // prepare() hook, its expensive/slow work (an LLM or external tool call)
+      // runs HERE, BEFORE withTenant() opens — never inside the 15s tenant
+      // transaction. Exactly the answerQuestion pattern: costly call first, then
+      // a SHORT transaction writes only the result atomically. Steps without
+      // prepare() skip this entirely (prepared stays undefined).
+      const prepared = step.prepare
+        ? await step.prepare({ orgId, input, state })
+        : undefined;
       await withTenant(orgId, async (tx) => {
         // Step effect + step row + audit entry: one atomic transaction.
-        const detail = await step.run({ orgId, tx, input, state });
+        const detail = await step.run({ orgId, tx, input, state, prepared });
         state[step.name] = detail;
         await tx.skillStep.create({
           data: { orgId, runId, idx, name: step.name, status: 'done', detail: asJson(detail) },
