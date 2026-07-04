@@ -85,6 +85,8 @@ export interface StartRunOptions {
    * the run never pauses in awaiting_approval.
    */
   mode?: SkillRunMode;
+  /** Optional link to a client entity. NULL = run not associated with a client. */
+  clientId?: string | null;
 }
 
 /**
@@ -103,6 +105,7 @@ export async function startRun(
 ): Promise<RunHandle> {
   const skill = getSkill(skillKey);
   const mode: SkillRunMode = opts.mode ?? 'live';
+  const clientId = opts.clientId ?? null;
 
   const run = await withTenant(orgId, async (tx) => {
     // Kostenschutz: Tageslimit für Skill-Läufe (weiches Limit, siehe limits.ts).
@@ -110,7 +113,7 @@ export async function startRun(
     // wie ein Live-Lauf; nur die WIRKENDEN Schritte entfallen.
     await assertWithinDailyLimit(tx, 'run');
     const created = await tx.skillRun.create({
-      data: { orgId, skillKey: skill.key, status: 'running', mode, input: asJson(input) },
+      data: { orgId, skillKey: skill.key, status: 'running', mode, input: asJson(input), clientId },
     });
     await logAudit(tx, {
       orgId,

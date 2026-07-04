@@ -94,7 +94,10 @@ export async function startSkillRun(formData: FormData) {
   // werden nur simuliert, nichts verlässt das System).
   const mode = formData.get('dryRun') ? 'simulation' : 'live';
 
-  const handle = await startRun(orgId, skill.key, input, { mode });
+  const rawClientId = String(formData.get('clientId') ?? '').trim();
+  const clientId = rawClientId || null;
+
+  const handle = await startRun(orgId, skill.key, input, { mode, clientId });
 
   // Refresh the shell (approvals badge) + list views.
   revalidatePath('/dashboard', 'layout');

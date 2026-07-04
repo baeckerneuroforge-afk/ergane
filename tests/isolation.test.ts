@@ -13,7 +13,7 @@
 // GUC leakage) — added after an adversarial security review.
 // =============================================================================
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../src/lib/prisma'; // app_user — the system under test
 import { withTenant } from '../src/lib/tenant';
 // Single source of truth for the tenant-table set — shared with the Security
@@ -138,11 +138,12 @@ describe('tenant isolation gate (enforced by Postgres RLS + FORCE)', () => {
     expect(roleRows[0]?.rolbypassrls).toBe(false);
 
     // (b) app_user owns none of the tenant tables → FORCE RLS always applies.
-    const ownerRows = await prisma.$queryRaw<Array<{ tablename: string; tableowner: string }>>`
-      SELECT tablename, tableowner FROM pg_tables
+    const ownerRows = await prisma.$queryRaw<Array<{ tablename: string; tableowner: string }>>(
+      Prisma.sql`SELECT tablename, tableowner FROM pg_tables
         WHERE schemaname = 'public'
-          AND tablename IN ('organizations', 'knowledge_items', 'memberships', 'audit_log')`;
-    expect(ownerRows).toHaveLength(4);
+          AND tablename IN (${Prisma.join(TENANT_TABLES.map((t) => t))})`,
+    );
+    expect(ownerRows).toHaveLength(TENANT_TABLES.length);
     for (const row of ownerRows) {
       expect(row.tableowner).not.toBe('app_user');
     }
@@ -173,10 +174,10 @@ describe('isolation regression guards', () => {
     // since FORCE only affects the table owner) and a dropped ENABLE.
     const rows = await prisma.$queryRaw<
       Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>
-    >`SELECT relname, relrowsecurity, relforcerowsecurity
+    >(Prisma.sql`SELECT relname, relrowsecurity, relforcerowsecurity
         FROM pg_class
-        WHERE relname IN ('organizations', 'memberships', 'knowledge_items', 'audit_log')`;
-    expect(rows).toHaveLength(4);
+        WHERE relname IN (${Prisma.join(TENANT_TABLES.map((t) => t))})`);
+    expect(rows).toHaveLength(TENANT_TABLES.length);
     for (const r of rows) {
       expect(r.relrowsecurity, `${r.relname} ENABLE RLS`).toBe(true);
       expect(r.relforcerowsecurity, `${r.relname} FORCE RLS`).toBe(true);

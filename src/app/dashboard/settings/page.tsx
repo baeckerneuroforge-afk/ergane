@@ -16,6 +16,8 @@ import { getValueSettings, DEFAULT_HOURLY_RATE_USD } from '@/lib/value';
 import { VisibilityBadge, formatEuro } from '../ui';
 import { POLICY_PRESETS } from '@/lib/policies';
 import {
+  addClient,
+  editClient,
   applyGovernancePreset,
   eraseOrganization,
   importGovernanceConfig,
@@ -41,6 +43,7 @@ const TAB_KEYS = [
   'approvals',
   'visibility',
   'members',
+  'clients',
   'governance',
   'company',
   'value',
@@ -87,6 +90,7 @@ export default async function SettingsPage({
     grants,
     documents,
     memberships,
+    clients,
     slackInstallations,
     slackLinks,
     orgSettings,
@@ -96,6 +100,7 @@ export default async function SettingsPage({
       grants: await tx.visibilityGrant.findMany(),
       documents: await tx.document.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
       memberships: await tx.membership.findMany({ orderBy: { createdAt: 'asc' } }),
+      clients: await tx.client.findMany({ orderBy: { name: 'asc' } }),
       slackInstallations: await tx.slackInstallation.findMany({ orderBy: { createdAt: 'asc' } }),
       slackLinks: await tx.slackUserLink.findMany({ orderBy: { createdAt: 'asc' } }),
       orgSettings: await tx.orgSettings.findUnique({ where: { orgId } }),
@@ -349,6 +354,102 @@ export default async function SettingsPage({
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {tab === 'clients' ? (
+        <section className="card card--table">
+          <div className="card-title">
+            <h2>{s.clientsHeading}</h2>
+            <span className="row-meta">{s.clientsTotal(clients.length)}</span>
+          </div>
+          <p className="muted" style={{ padding: '0 1.25rem' }}>
+            {s.clientsHint}
+          </p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>{s.clientName}</th>
+                <th>{s.clientNotes}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {clients.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="muted">
+                    {s.noClients}
+                  </td>
+                </tr>
+              ) : null}
+              {clients.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <input
+                      name="clientName"
+                      defaultValue={c.name}
+                      required
+                      className="select--inline"
+                      form={`edit-client-${c.id}`}
+                      style={{ width: '14rem' }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      name="clientNotes"
+                      defaultValue={c.notes ?? ''}
+                      className="select--inline"
+                      form={`edit-client-${c.id}`}
+                      style={{ width: '18rem' }}
+                    />
+                  </td>
+                  <td>
+                    <form id={`edit-client-${c.id}`} action={editClient}>
+                      <input type="hidden" name="clientId" value={c.id} />
+                    </form>
+                    <button
+                      type="submit"
+                      className="btn btn--ghost select--inline"
+                      form={`edit-client-${c.id}`}
+                    >
+                      {s.saveClient}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td>
+                  <input
+                    name="clientName"
+                    placeholder={s.clientNamePlaceholder}
+                    required
+                    className="select--inline"
+                    form="add-client-form"
+                    style={{ width: '14rem' }}
+                  />
+                </td>
+                <td>
+                  <input
+                    name="clientNotes"
+                    placeholder={s.clientNotesPlaceholder}
+                    className="select--inline"
+                    form="add-client-form"
+                    style={{ width: '18rem' }}
+                  />
+                </td>
+                <td>
+                  <form id="add-client-form" action={addClient} />
+                  <button
+                    type="submit"
+                    className="btn btn--primary select--inline"
+                    form="add-client-form"
+                  >
+                    {s.addClient}
+                  </button>
+                </td>
+              </tr>
             </tbody>
           </table>
         </section>

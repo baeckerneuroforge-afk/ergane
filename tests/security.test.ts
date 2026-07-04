@@ -39,7 +39,7 @@ import {
 
 const ORG_A = 'ecec1111-ecec-4ece-8ece-ecececececec';
 const ORG_B = 'ecec2222-ecec-4ece-8ece-ecececececec';
-const ALL_TABLES = ['organizations', 'memberships', 'knowledge_items', 'audit_log'];
+const ALL_TABLES = ['organizations', 'memberships', 'knowledge_items', 'audit_log', 'clients'];
 
 const ADMIN_A = 'sec_admin_a';
 const MEMBER_A = 'sec_member_a';
@@ -128,7 +128,7 @@ describe('live check: tenant isolation (RLS + FORCE)', () => {
     if (p.evidence.kind === 'rlsCount') {
       expect(p.evidence.total).toBe(TENANT_TABLES.length);
       expect(p.evidence.secured).toBe(TENANT_TABLES.length);
-      expect(p.evidence.secured).toBe(4);
+      expect(p.evidence.secured).toBe(TENANT_TABLES.length);
       // The tables named are exactly the tenant tables — no other table names.
       expect(p.evidence.tables.sort()).toEqual([...TENANT_TABLES].sort());
     }
@@ -137,7 +137,7 @@ describe('live check: tenant isolation (RLS + FORCE)', () => {
   it('the set it checks matches the isolation gate (tests/isolation.test.ts)', () => {
     // If a new tenant table is added to one place but not the other, this fails.
     expect([...TENANT_TABLES].sort()).toEqual(
-      ['audit_log', 'knowledge_items', 'memberships', 'organizations'].sort(),
+      ['audit_log', 'clients', 'knowledge_items', 'memberships', 'organizations'].sort(),
     );
   });
 });

@@ -117,6 +117,7 @@ model Organization {
   documents      Document[]
   chunks         Chunk[]
   chatMessages   ChatMessage[]
+  clients        Client[]
   skillRuns      SkillRun[]
   skillSteps     SkillStep[]
   approvals      Approval[]
@@ -251,6 +252,26 @@ model VisibilityGrant {
   @@map("visibility_grants")
 }
 
+/// Tenant-scoped client entity — mutable working state (name/notes change).
+/// RLS ENABLE + FORCE. The `[id, org_id]` composite unique is the target of the
+/// composite FK from skill_runs, so a run can never reference another tenant's
+/// client — structurally, on top of RLS.
+model Client {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  name      String
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  skillRuns    SkillRun[]
+
+  @@unique([id, orgId])
+  @@index([orgId, createdAt(sort: Desc)])
+  @@map("clients")
+}
+
 /// One execution of a declarative skill (tenant-scoped). RLS ENABLE + FORCE.
 /// The `[id, org_id]` unique constraint is the target of the composite FKs from
 /// skill_steps/approvals — a step or approval can never reference another
@@ -264,10 +285,12 @@ model SkillRun {
   mode      SkillRunMode   @default(live)
   input     Json
   result    Json?
+  clientId  String?        @map("client_id") @db.Uuid
   createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  client       Client?      @relation(fields: [clientId, orgId], references: [id, orgId], onDelete: SetNull)
   steps        SkillStep[]
   approvals    Approval[]
 

@@ -19,6 +19,7 @@ import {
 } from '@/lib/policies';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
+import { createClient, updateClient } from '@/lib/clients';
 import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
 import { setValueSettings } from '@/lib/value';
 
@@ -248,6 +249,36 @@ export async function saveValueSettings(formData: FormData) {
   revalidatePath('/dashboard/settings');
   revalidatePath('/dashboard/value');
   revalidatePath('/dashboard');
+}
+
+// -----------------------------------------------------------------------------
+// Kunden (Admin-Gate + Audit in src/lib/clients.ts)
+// -----------------------------------------------------------------------------
+
+export async function addClient(formData: FormData) {
+  const name = String(formData.get('clientName') ?? '').trim();
+  if (!name) throw new Error('Client name is required.');
+  const notes = String(formData.get('clientNotes') ?? '').trim() || null;
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await createClient({ orgId, actorUserId: userId, name, notes });
+
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/skills');
+}
+
+export async function editClient(formData: FormData) {
+  const clientId = String(formData.get('clientId') ?? '').trim();
+  if (!clientId) throw new Error('Client id is required.');
+  const name = String(formData.get('clientName') ?? '').trim();
+  if (!name) throw new Error('Client name is required.');
+  const notes = String(formData.get('clientNotes') ?? '').trim() || null;
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await updateClient({ orgId, actorUserId: userId, clientId, name, notes });
+
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/skills');
 }
 
 export async function saveOrgLocale(formData: FormData) {

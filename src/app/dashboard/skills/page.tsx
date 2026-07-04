@@ -1,5 +1,6 @@
 import type { ApprovalPolicy } from '@prisma/client';
 import { requireTenant } from '@/lib/auth-context';
+import { listClientsInTx } from '@/lib/clients';
 import type { Dictionary, Locale } from '@/lib/i18n';
 import { getI18n } from '@/lib/i18n/server';
 import { getApprovalPolicies } from '@/lib/policies';
@@ -7,6 +8,7 @@ import { listSkills } from '@/lib/skills';
 import { GUARDRAIL_LIMIT_EUR } from '@/lib/skills/catalog/beleg_kontieren';
 import { RECHNUNG_GUARDRAIL_LIMIT_EUR } from '@/lib/skills/catalog/rechnung_erstellen';
 import type { SkillDef } from '@/lib/skills';
+import { withTenant } from '@/lib/tenant';
 import { formatEuro } from '../ui';
 import { startSkillRun } from './actions';
 
@@ -46,8 +48,10 @@ export default async function SkillsPage() {
   const { locale, t } = await getI18n();
   const f = t.skills.forms;
   const skills = listSkills();
-  // One tenant transaction for all policies instead of one per skill.
-  const policies = await getApprovalPolicies(orgId, skills.map((s) => s.key));
+  const [policies, clients] = await Promise.all([
+    getApprovalPolicies(orgId, skills.map((s) => s.key)),
+    withTenant(orgId, (tx) => listClientsInTx(tx)),
+  ]);
 
   return (
     <>
@@ -182,6 +186,17 @@ export default async function SkillsPage() {
                     <textarea id={`input-${skill.key}`} name="inputJson" rows={4} defaultValue="{}" />
                   </>
                 )}
+                {clients.length > 0 ? (
+                  <>
+                    <label htmlFor={`client-${skill.key}`}>{f.clientSelect}</label>
+                    <select id={`client-${skill.key}`} name="clientId" defaultValue="">
+                      <option value="">{f.clientNone}</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </>
+                ) : null}
                 <label
                   style={{
                     display: 'flex',
