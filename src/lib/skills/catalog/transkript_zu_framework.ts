@@ -35,6 +35,7 @@ import { getChatProvider, type ChatProvider } from '../../ai';
 import { createArtifact } from '../../artifacts';
 import { getOrgLocale } from '../../i18n/org';
 import { DEFAULT_LOCALE, isLocale, type Locale } from '../../i18n';
+import { getClientHistory, type ClientHistory } from '../../memory/history';
 import type { SkillDef, SkillJson } from '../types';
 import { holeWissen, rolleAusInput, type WissensTreffer } from './wissen';
 
@@ -218,10 +219,50 @@ const TEXTS: Record<Locale, {
   },
 };
 
-/** User-Nachricht: Auftrag (Thema/Fokus) + Transkript-Passagen als klar
- *  abgegrenzter Kontextblock (dasselbe [Titel]-Präfix-Schema wie answerQuestion).
- *  Der Kontextblock ist explizit als solcher markiert, damit das Modell Auftrag
- *  und Quelle nicht verwechselt. */
+function buildHistoryBlock(history: ClientHistory, locale: Locale): string {
+  const parts: string[] = [];
+  if (locale === 'de') {
+    parts.push(`=== FRÜHERE ARBEIT MIT DIESEM KUNDEN (${history.clientName}) ===`);
+    if (history.notes) parts.push(`Kunden-Notiz: ${history.notes}`);
+    if (history.runs.length > 0) {
+      parts.push('', 'Bisherige Läufe:');
+      for (const r of history.runs) {
+        parts.push(`- ${r.skillKey} (${r.status}, ${r.createdAt.toISOString().slice(0, 10)})`);
+      }
+    }
+    if (history.deliverables.length > 0) {
+      parts.push('', 'Bisherige Deliverables (jeweils neueste Version):');
+      for (const d of history.deliverables) {
+        parts.push(`--- ${d.title} (Typ: ${d.type}, Version ${d.version}) ---`);
+        if (d.content) parts.push(d.content);
+        else parts.push('[Inhalt nicht verfügbar]');
+      }
+    }
+    parts.push('=== ENDE FRÜHERE ARBEIT ===');
+    parts.push('', 'Baue auf dieser früheren Arbeit auf: vermeide Widersprüche, zeige Fortschritt, wiederhole nicht, was bereits erarbeitet wurde.');
+  } else {
+    parts.push(`=== PRIOR WORK WITH THIS CLIENT (${history.clientName}) ===`);
+    if (history.notes) parts.push(`Client note: ${history.notes}`);
+    if (history.runs.length > 0) {
+      parts.push('', 'Previous runs:');
+      for (const r of history.runs) {
+        parts.push(`- ${r.skillKey} (${r.status}, ${r.createdAt.toISOString().slice(0, 10)})`);
+      }
+    }
+    if (history.deliverables.length > 0) {
+      parts.push('', 'Previous deliverables (latest version each):');
+      for (const d of history.deliverables) {
+        parts.push(`--- ${d.title} (type: ${d.type}, version ${d.version}) ---`);
+        if (d.content) parts.push(d.content);
+        else parts.push('[Content unavailable]');
+      }
+    }
+    parts.push('=== END PRIOR WORK ===');
+    parts.push('', 'Build on this prior work: avoid contradictions, show progress, do not repeat what has already been produced.');
+  }
+  return parts.join('\n');
+}
+
 function buildUserMessage(
   locale: Locale,
   thema: string,
@@ -312,18 +353,31 @@ export const transkriptZuFramework: SkillDef = {
       name: 'framework_entworfen',
       // PRE-TX: hier läuft der LLM-Call. Kein ctx.tx ⇒ physisch außerhalb jeder
       // Transaktion (das ist der ganze Zweck des prepare-Hooks).
-      prepare: async ({ input, state }) => {
+      prepare: async ({ orgId, input, state }) => {
         const { thema, fokus } = parseInput(input);
         const locale = localeAusState(state);
         const treffer = (state.transkript_kontext?.treffer ?? []) as WissensTreffer[];
-        // Ehrlichkeits-Regel wie answerQuestion: ohne Kontext KEIN LLM-Call.
         if (treffer.length === 0) {
           return { generiert: false, markdown: null };
         }
+
+        const clientId = (state.transkript_kontext?.clientId as string) ?? null;
+        let history: ClientHistory | null = null;
+        if (clientId) {
+          history = await getClientHistory(clientId, orgId);
+          if (history.runs.length === 0 && history.deliverables.length === 0 && !history.notes) {
+            history = null;
+          }
+        }
+
+        const userMsg = history
+          ? buildHistoryBlock(history, locale) + '\n\n' + buildUserMessage(locale, thema, fokus, treffer)
+          : buildUserMessage(locale, thema, fokus, treffer);
+
         const chat: ChatProvider = getChatProvider();
         const markdown = await completeWithRetry(chat, {
           system: TEXTS[locale].systemPrompt,
-          messages: [{ role: 'user', content: buildUserMessage(locale, thema, fokus, treffer) }],
+          messages: [{ role: 'user', content: userMsg }],
           maxTokens: 16000,
         });
         return { generiert: true, markdown: markdown.trim() };
