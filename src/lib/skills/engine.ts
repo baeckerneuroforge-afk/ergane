@@ -58,6 +58,7 @@
 // counted as — a real execution.
 import { Prisma, type Role, type SkillRun, type SkillRunMode } from '@prisma/client';
 import { logAudit } from '../audit';
+import { evaluateDeliverableCriteria } from '../loop/evaluate';
 import { assertWithinDailyLimit } from '../limits';
 import { getMemberRole, roleSatisfies } from '../policies';
 import { withTenant } from '../tenant';
@@ -435,6 +436,27 @@ async function executeFrom(
         });
       });
       return { runId, status: 'failed' };
+    }
+  }
+
+  // Loop evaluation: check deliverable acceptance criteria (best-effort).
+  // Runs OUTSIDE a transaction (blob load + criteria check), then writes
+  // trace + flag in a SHORT transaction. A failure here must never break
+  // the run — the skill completed successfully, the evaluation is additive.
+  if (mode === 'live') {
+    try {
+      await evaluateDeliverableCriteria(orgId, skill.key, runId, state);
+    } catch (err) {
+      await withTenant(orgId, (tx) =>
+        logAudit(tx, {
+          orgId,
+          actorId: ENGINE_ACTOR,
+          actorType: 'agent',
+          action: 'loop.evaluation_failed',
+          target: `${skill.key}:${runId}`,
+          detail: { error: err instanceof Error ? err.message : String(err) },
+        }),
+      ).catch(() => {});
     }
   }
 

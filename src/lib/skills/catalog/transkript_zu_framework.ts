@@ -56,10 +56,7 @@ const CONTEXT_K = 8;
 
 /** Die sechs Abschnitte, sprachneutral als Struktur-Rückgrat (für beide Prompts
  *  und die Tests: die Abschnittsnamen dürfen nur hier geändert werden). */
-export const FRAMEWORK_SECTIONS = {
-  en: ['Executive summary', 'Situation', 'Key themes & goals', 'Constraints', 'Prioritized use cases', 'Next steps'],
-  de: ['Executive Summary', 'Ausgangslage', 'Kernthemen & Ziele', 'Rahmenbedingungen', 'Priorisierte Use Cases', 'Nächste Schritte'],
-} as const;
+export { FRAMEWORK_SECTIONS } from './framework-sections';
 
 const SYSTEM_PROMPT_EN = [
   'You are a senior consultant. From the transcript excerpts of client conversations below, you write a crisp,',
