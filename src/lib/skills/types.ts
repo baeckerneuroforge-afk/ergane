@@ -30,6 +30,8 @@ export type SkillJson = Record<string, unknown>;
  */
 export interface PrepareContext {
   orgId: string;
+  /** The id of the current skill run. */
+  runId: string;
   /** The run's input, exactly as passed to startRun(). */
   input: SkillJson;
   /** Details of all previously completed steps, keyed by step name. */

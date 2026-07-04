@@ -88,6 +88,7 @@ export const TENANT_TABLES = [
   'knowledge_items',
   'audit_log',
   'clients',
+  'artifacts',
 ] as const;
 
 /**

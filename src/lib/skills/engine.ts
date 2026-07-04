@@ -395,7 +395,7 @@ async function executeFrom(
       // a SHORT transaction writes only the result atomically. Steps without
       // prepare() skip this entirely (prepared stays undefined).
       const prepared = step.prepare
-        ? await step.prepare({ orgId, input, state })
+        ? await step.prepare({ orgId, runId, input, state })
         : undefined;
       await withTenant(orgId, async (tx) => {
         // Step effect + step row + audit entry: one atomic transaction.
