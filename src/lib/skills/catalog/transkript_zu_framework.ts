@@ -32,6 +32,7 @@
 // prepare() gereicht, damit der LLM-Prompt sprachrichtig ist OHNE dass prepare
 // eine Transaktion öffnen müsste.
 import { getChatProvider, type ChatProvider } from '../../ai';
+import { createArtifact } from '../../artifacts';
 import { getOrgLocale } from '../../i18n/org';
 import { DEFAULT_LOCALE, isLocale, type Locale } from '../../i18n';
 import type { SkillDef, SkillJson } from '../types';
@@ -281,11 +282,18 @@ export const transkriptZuFramework: SkillDef = {
           k: CONTEXT_K,
           source: 'transcript',
         });
+        // Read clientId from the run row so it's available to later steps.
+        const run = await tx.skillRun.findFirst({
+          where: { orgId, skillKey: 'transkript_zu_framework', status: 'running' },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, clientId: true },
+        });
         return {
           thema,
           fokus: fokus || null,
           rolle: rolle || null,
           locale,
+          clientId: run?.clientId ?? null,
           trefferAnzahl: treffer.length,
           treffer: treffer.map((tr) => ({
             titel: tr.titel,
@@ -347,9 +355,12 @@ export const transkriptZuFramework: SkillDef = {
       // Der HANDELNDE Schritt: finale Ausgabe des Deliverables. Läuft erst NACH
       // menschlicher Freigabe (Guardrail triggert immer) — ein generativer
       // Output verlässt nie ungeprüft die Maschine.
+      //
+      // ARTIFACT STORAGE: the blob-put (external network call) runs in prepare()
+      // — BEFORE the withTenant transaction, exactly like the LLM call. The DB
+      // row (artifact table) is written atomically inside run()'s transaction.
       name: 'framework_ausgegeben',
       acts: true,
-      // Probelauf-Vorschau (read-only): WAS ausgegeben würde, ohne finale Wirkung.
       describeEffect: ({ state }) => {
         const generiert = state.framework_entworfen?.generiert === true;
         const quellen = (state.framework_entworfen?.quellen ?? []) as string[];
@@ -361,7 +372,8 @@ export const transkriptZuFramework: SkillDef = {
           quellenAnzahl: quellen.length,
         };
       },
-      run: async ({ state }) => {
+      prepare: async ({ orgId, runId, input, state }) => {
+        const { thema } = parseInput(input);
         const locale = localeAusState(state);
         const texts = TEXTS[locale];
         const generiert = state.framework_entworfen?.generiert === true;
@@ -372,17 +384,38 @@ export const transkriptZuFramework: SkillDef = {
         const quellen = (state.framework_entworfen?.quellen ?? []) as string[];
 
         if (!generiert) {
-          // Kein-Kontext-Fall: die ehrliche Notiz, keine Quellen-Zeile.
-          return { ausgegeben: true, generiert: false, text: markdown, quellen: [] };
+          return { generiert: false, text: markdown, quellen: [] };
         }
 
-        // Finales Deliverable, sauberes Markdown-Dokument:
-        //   H1-Kopf (+ Fokus) · Trenner · generiertes Framework · Trenner ·
-        //   kursive Quellen-Fußzeile. Die Fußzeile trägt das kanonische
-        //   "<Label>: <Quellen>" (von der Chat-/Skill-Schicht rückparsebar).
         const fussnote = `_${texts.sourcesLabel}: ${quellen.join(', ')}_`;
         const text = [kopf, '', '---', '', markdown, '', '---', '', fussnote].join('\n');
-        return { ausgegeben: true, generiert: true, text, quellen };
+        const bytes = new TextEncoder().encode(text);
+        const clientId = (state.transkript_kontext?.clientId as string) ?? null;
+
+        const artifact = await createArtifact({
+          orgId,
+          title: texts.frameworkFor(thema),
+          type: 'framework',
+          clientId,
+          runId,
+          bytes,
+          contentType: 'text/markdown',
+        });
+
+        return { generiert: true, text, quellen, artifactId: artifact.id, version: artifact.version };
+      },
+      run: async ({ state, prepared }) => {
+        const generiert = prepared?.generiert === true;
+        const text = typeof prepared?.text === 'string' ? prepared.text : '';
+        const quellen = Array.isArray(prepared?.quellen) ? (prepared.quellen as string[]) : [];
+        const artifactId = typeof prepared?.artifactId === 'string' ? prepared.artifactId : null;
+        const version = typeof prepared?.version === 'number' ? prepared.version : null;
+
+        if (!generiert) {
+          return { ausgegeben: true, generiert: false, text, quellen: [] };
+        }
+
+        return { ausgegeben: true, generiert: true, text, quellen, artifactId, version };
       },
     },
   ],

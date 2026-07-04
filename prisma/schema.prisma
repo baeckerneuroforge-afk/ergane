@@ -128,6 +128,7 @@ model Organization {
   slackProcessedEvents SlackProcessedEvent[]
   settings             OrgSettings?
   chatFeedback         ChatFeedback[]
+  artifacts            Artifact[]
 
   @@map("organizations")
 }
@@ -266,6 +267,7 @@ model Client {
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   skillRuns    SkillRun[]
+  artifacts    Artifact[]
 
   @@unique([id, orgId])
   @@index([orgId, createdAt(sort: Desc)])
@@ -293,6 +295,7 @@ model SkillRun {
   client       Client?      @relation(fields: [clientId, orgId], references: [id, orgId], onDelete: SetNull)
   steps        SkillStep[]
   approvals    Approval[]
+  artifacts    Artifact[]
 
   @@unique([id, orgId])
   @@index([orgId, createdAt(sort: Desc)])
@@ -481,4 +484,34 @@ model AuditLog {
   @@index([orgId, createdAt(sort: Desc)])
   @@index([orgId, actorId, createdAt(sort: Desc)])
   @@map("audit_log")
+}
+
+/// Persistent, versioned deliverable produced by a skill run (tenant-scoped).
+/// RLS ENABLE + FORCE. Composite FKs to clients and skill_runs make cross-tenant
+/// references structurally impossible. blob_key references external blob storage.
+/// Versions with the same slug (org_id, slug) form a version chain: a new run
+/// increments version, old versions remain readable.
+model Artifact {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  title       String
+  type        String
+  clientId    String?  @map("client_id") @db.Uuid
+  runId       String?  @map("run_id") @db.Uuid
+  blobKey     String   @map("blob_key")
+  contentType String   @map("content_type")
+  sizeBytes   Int      @map("size_bytes")
+  version     Int      @default(1)
+  slug        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  client       Client?      @relation(fields: [clientId, orgId], references: [id, orgId], onDelete: SetNull)
+  run          SkillRun?    @relation(fields: [runId, orgId], references: [id, orgId], onDelete: SetNull)
+
+  @@unique([id, orgId])
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([orgId, clientId])
+  @@map("artifacts")
 }

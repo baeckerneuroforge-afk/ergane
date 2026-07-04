@@ -82,6 +82,11 @@ const SECTIONS: NavSection[] = [
         icon: <Icon d="M9 12l2 2 4-4M12 2l7 4v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-4z" />,
       },
       {
+        href: '/dashboard/deliverables',
+        key: 'deliverables',
+        icon: <Icon d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8" />,
+      },
+      {
         href: '/dashboard/value',
         key: 'value',
         icon: <Icon d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />,
