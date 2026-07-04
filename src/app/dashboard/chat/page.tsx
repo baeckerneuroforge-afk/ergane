@@ -10,6 +10,7 @@ import {
 import { withTenant } from '@/lib/tenant';
 import { getFeedbackStats, getOwnFeedback } from '@/lib/rag';
 import { askQuestion, rateAnswer } from './actions';
+import { ChatConversation } from './chat-conversation';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,8 +99,10 @@ export default async function ChatPage() {
         ) : null}
       </p>
 
-      <div className="chat-scroll">
-        {messages.length === 0 ? (
+      <ChatConversation
+        askAction={askQuestion}
+        isEmpty={messages.length === 0}
+        emptyState={
           <div className="empty">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 1 1 16.1-3.8z" />
@@ -107,103 +110,88 @@ export default async function ChatPage() {
             <strong>{c.emptyTitle}</strong>
             <span>{c.emptyHint}</span>
           </div>
-        ) : (
-          messages.map((msg) => {
-            if (msg.role === 'user') {
-              return (
-                <div key={msg.id} className="bubble bubble--user">
-                  {msg.content}
-                </div>
-              );
-            }
-            const { text, sources } = splitSources(msg.content);
-            const noKnowledge = isNoKnowledge(text);
-            const trace = parseAnswerTrace(msg.trace);
+        }
+      >
+        {messages.map((msg) => {
+          if (msg.role === 'user') {
             return (
-              <div
-                key={msg.id}
-                className={`bubble bubble--assistant${noKnowledge ? ' bubble--empty' : ''}`}
-              >
-                {text}
-                {sources.length > 0 ? (
-                  <div className="bubble-sources">
-                    {sources.map((s) => (
-                      <span key={s} className="chip chip--indigo">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                {trace ? (
-                  <details className="answer-trace">
-                    <summary>{c.trace.summary}</summary>
-                    <div className="answer-trace-body">
-                      {trace.noKnowledge ? (
-                        <p className="answer-trace-note">
-                          {trace.sources.length === 0 ? c.trace.noKnowledge : c.trace.insufficient}
-                        </p>
-                      ) : null}
-                      {trace.sources.length > 0 ? (
-                        <>
-                          <span className="answer-trace-title">{c.trace.sourcesTitle}</span>
-                          <ul className="answer-trace-list">
-                            {trace.sources.map((s) => (
-                              <li key={`${s.documentId}:${s.section}`}>
-                                <strong>{s.title}</strong> · {c.trace.section(s.section + 1)} ·{' '}
-                                {relevanceLabel(s.similarity, trace.threshold, {
-                                  high: c.trace.relevanceHigh,
-                                  medium: c.trace.relevanceMedium,
-                                  low: c.trace.relevanceLow,
-                                })}
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      ) : null}
-                      {trace.filteredCount > 0 ? (
-                        // Disclosure invariant: filtered hits appear ONLY as a
-                        // count — the trace never carries their titles/content.
-                        <p className="answer-trace-note">{c.trace.filtered(trace.filteredCount)}</p>
-                      ) : null}
-                    </div>
-                  </details>
-                ) : null}
-                <div className="bubble-sources" aria-label={c.rateAria}>
-                  {(['up', 'down'] as const).map((verdict) => (
-                    <form key={verdict} action={rateAnswer} style={{ display: 'inline-block' }}>
-                      <input type="hidden" name="messageId" value={msg.id} />
-                      <input type="hidden" name="verdict" value={verdict} />
-                      <button
-                        type="submit"
-                        className="btn btn--ghost select--inline"
-                        title={verdict === 'up' ? c.helpful : c.notHelpful}
-                        style={ownVotes[msg.id] === verdict ? { fontWeight: 700 } : undefined}
-                      >
-                        {verdict === 'up' ? '👍' : '👎'}
-                      </button>
-                    </form>
-                  ))}
-                </div>
+              <div key={msg.id} className="bubble bubble--user">
+                {msg.content}
               </div>
             );
-          })
-        )}
-      </div>
-
-      <div className="chat-input">
-        <form action={askQuestion}>
-          <input
-            name="question"
-            placeholder={c.questionPlaceholder}
-            aria-label={c.questionAria}
-            autoComplete="off"
-            required
-          />
-          <button type="submit" className="btn btn--primary">
-            {c.ask}
-          </button>
-        </form>
-      </div>
+          }
+          const { text, sources } = splitSources(msg.content);
+          const noKnowledge = isNoKnowledge(text);
+          const trace = parseAnswerTrace(msg.trace);
+          return (
+            <div
+              key={msg.id}
+              className={`bubble bubble--assistant${noKnowledge ? ' bubble--empty' : ''}`}
+            >
+              {text}
+              {sources.length > 0 ? (
+                <div className="bubble-sources">
+                  {sources.map((s) => (
+                    <span key={s} className="chip chip--indigo">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {trace ? (
+                <details className="answer-trace">
+                  <summary>{c.trace.summary}</summary>
+                  <div className="answer-trace-body">
+                    {trace.noKnowledge ? (
+                      <p className="answer-trace-note">
+                        {trace.sources.length === 0 ? c.trace.noKnowledge : c.trace.insufficient}
+                      </p>
+                    ) : null}
+                    {trace.sources.length > 0 ? (
+                      <>
+                        <span className="answer-trace-title">{c.trace.sourcesTitle}</span>
+                        <ul className="answer-trace-list">
+                          {trace.sources.map((s) => (
+                            <li key={`${s.documentId}:${s.section}`}>
+                              <strong>{s.title}</strong> · {c.trace.section(s.section + 1)} ·{' '}
+                              {relevanceLabel(s.similarity, trace.threshold, {
+                                high: c.trace.relevanceHigh,
+                                medium: c.trace.relevanceMedium,
+                                low: c.trace.relevanceLow,
+                              })}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                    {trace.filteredCount > 0 ? (
+                      // Disclosure invariant: filtered hits appear ONLY as a
+                      // count — the trace never carries their titles/content.
+                      <p className="answer-trace-note">{c.trace.filtered(trace.filteredCount)}</p>
+                    ) : null}
+                  </div>
+                </details>
+              ) : null}
+              <div className="bubble-sources" aria-label={c.rateAria}>
+                {(['up', 'down'] as const).map((verdict) => (
+                  <form key={verdict} action={rateAnswer} style={{ display: 'inline-block' }}>
+                    <input type="hidden" name="messageId" value={msg.id} />
+                    <input type="hidden" name="verdict" value={verdict} />
+                    <button
+                      type="submit"
+                      className="btn btn--ghost select--inline"
+                      title={verdict === 'up' ? c.helpful : c.notHelpful}
+                      style={ownVotes[msg.id] === verdict ? { fontWeight: 700 } : undefined}
+                    >
+                      {verdict === 'up' ? '👍' : '👎'}
+                    </button>
+                  </form>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </ChatConversation>
     </div>
   );
 }

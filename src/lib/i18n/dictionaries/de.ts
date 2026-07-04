@@ -265,6 +265,11 @@ export const de: Dictionary = {
     questionPlaceholder: 'z. B. Wie viele Urlaubstage haben wir?',
     questionAria: 'Frage',
     ask: 'Fragen',
+    // Live-Feedback beim Absenden (chat-conversation.tsx): optimistische Bubble + Warte-Zustand.
+    sending: 'Wird gesendet…',
+    thinking: 'helix denkt',
+    thinkingAria: 'helix bereitet eine Antwort vor',
+    sendError: 'Antwort fehlgeschlagen. Bitte erneut versuchen.',
     trace: {
       summary: 'Warum diese Antwort?',
       sourcesTitle: 'Verwendete Quellen',

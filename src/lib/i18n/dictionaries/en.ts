@@ -263,6 +263,11 @@ export const en = {
     questionPlaceholder: 'e.g. How many vacation days do we have?',
     questionAria: 'Question',
     ask: 'Ask',
+    // Live send feedback (chat-conversation.tsx): optimistic bubble + pending state.
+    sending: 'Sending…',
+    thinking: 'helix is thinking',
+    thinkingAria: 'helix is preparing an answer',
+    sendError: 'Answer failed. Please try again.',
     trace: {
       summary: 'Why this answer?',
       sourcesTitle: 'Sources used',
