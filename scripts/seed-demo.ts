@@ -1,7 +1,9 @@
 // =============================================================================
 // `pnpm seed:demo` — Demo-Daten für Screenshots: die "Nordwind GmbH".
 //
-// Legt an: 4 Wissens-Dokumente (verschiedene Sichtbarkeiten), 2 Chat-Verläufe,
+// Legt an: 6 Wissens-/Firmenwissen-Dokumente (verschiedene Sichtbarkeiten),
+// 2 fiktive Kundengespräch-Transkripte (source 'transcript', restricted) als
+// Rohmaterial für den `transkript_zu_framework`-Skill, mehrere Chat-Verläufe,
 // 9 skill_runs in verschiedenen Zuständen (completed, awaiting_approval mit
 // 1.240 €, rejected, plus je ein Run pro Katalog-Skill: read-only completed,
 // Angebot awaiting wegen externer Wirkung, Rechnung approved + awaiting)
@@ -33,9 +35,11 @@ const ADMIN = 'demo-admin';
 const LEAD = 'demo-lead';
 const MEMBER = 'demo-member';
 
+// Wissens-Dokumente + Firmenwissen der Nordwind GmbH (source 'manual').
 const DOCUMENTS = [
   {
     title: 'Urlaubsrichtlinie 2026',
+    source: 'manual' as const,
     visibility: 'open' as const,
     text: [
       'Alle Mitarbeitenden der Nordwind GmbH haben Anspruch auf 30 Urlaubstage pro Kalenderjahr.',
@@ -45,6 +49,7 @@ const DOCUMENTS = [
   },
   {
     title: 'Reisekostenrichtlinie',
+    source: 'manual' as const,
     visibility: 'open' as const,
     text: [
       'Dienstreisen sind vor Antritt über das Reiseportal zu genehmigen.',
@@ -54,6 +59,7 @@ const DOCUMENTS = [
   },
   {
     title: 'Kundenkonditionen Q3',
+    source: 'manual' as const,
     visibility: 'restricted' as const,
     text: [
       'Rahmenvertragskunden erhalten im dritten Quartal einen Projektrabatt von 8 Prozent.',
@@ -62,11 +68,112 @@ const DOCUMENTS = [
   },
   {
     title: 'Gehaltsbänder 2026',
+    source: 'manual' as const,
     visibility: 'confidential' as const,
     text: [
       'Gehaltsband Junior: 42.000 bis 54.000 Euro. Gehaltsband Senior: 62.000 bis 84.000 Euro.',
       'Anpassungen erfolgen jährlich zum 1. April auf Basis der Leistungsbeurteilung.',
     ].join('\n\n'),
+  },
+  // --- Firmenwissen: Nordwinds eigene Methodik, damit ein aus einem Transkript
+  //     abgeleitetes Framework mit dem Vorgehen des Hauses angereichert werden
+  //     kann (open — für alle Rollen sichtbar). Fiktiv.
+  {
+    title: 'Nordwind Beratungsmethodik: Discovery-to-Framework',
+    source: 'manual' as const,
+    visibility: 'open' as const,
+    text: [
+      'Die Nordwind GmbH führt Einführungsprojekte in vier Phasen: Discovery, Framework, Pilot, Rollout. ' +
+        'Jede Phase endet mit einem definierten Ergebnis und einer Freigabe durch die Kundenseite.',
+      'In der Discovery-Phase werden in strukturierten Gesprächen die Pain Points, die Ziele, die betroffenen ' +
+        'Stakeholder sowie die technischen und organisatorischen Rahmenbedingungen des Kunden erhoben. ' +
+        'Grundsatz: Jede spätere Empfehlung muss auf eine konkrete Aussage aus der Discovery zurückführbar sein.',
+      'In der Framework-Phase werden die Erkenntnisse zu Handlungsfeldern verdichtet. Ein belastbares Framework ' +
+        'enthält mindestens drei priorisierte Use Cases, je einen messbaren Zielwert pro Use Case, eine grobe ' +
+        'Aufwandsschätzung sowie eine Executive Summary für die Entscheiderebene.',
+      'Priorisiert wird nach Wirkung und Umsetzbarkeit: hoher Nutzen bei geringem Aufwand zuerst (Quick Wins), ' +
+        'aufwändige Grundlagenthemen als Fundament parallel, aber getrennt ausgewiesen.',
+    ].join('\n\n'),
+  },
+  {
+    title: 'Nordwind Leistungsportfolio 2026',
+    source: 'manual' as const,
+    visibility: 'open' as const,
+    text: [
+      'Die Nordwind GmbH begleitet mittelständische Unternehmen bei der Einführung datengetriebener Prozesse. ' +
+        'Schwerpunkte sind Prozessanalyse, Anforderungsmanagement, Lösungsarchitektur und Change-Begleitung.',
+      'Typische Engagements: ein zeitlich befristetes Discovery-Assessment (zwei bis vier Wochen), die Erstellung ' +
+        'eines Einführungs-Frameworks als Entscheidungsgrundlage, sowie die fachliche Begleitung eines Pilotprojekts.',
+      'Abrechnung erfolgt wahlweise als Festpreis je Phase oder auf Tagessatzbasis. Für Rahmenvertragskunden gelten ' +
+        'die jeweils gültigen Projektkonditionen.',
+    ].join('\n\n'),
+  },
+];
+
+// =============================================================================
+// Kundengespräch-Transkripte (source 'transcript') — FIKTIVE Demo-Daten.
+//
+// Rohmaterial für den kommenden `transkript_zu_framework`-Skill (Etappe 1):
+// realistische Discovery-Calls mit benannten Pain Points, Zielen, Stakeholdern,
+// Rahmenbedingungen, Zeitrahmen und Budget-Signalen — genug Substanz, dass sich
+// ein Einführungs-Framework mit mehreren Use Cases daraus ableiten ließe.
+//
+// Alle Personen und Firmen (außer der Beraterseite "Nordwind") sind erfunden;
+// keine echten Namen, Firmen oder Daten. Sichtbarkeit 'restricted': ein
+// Vertriebs-/Kundengespräch ist internes Material (Nordwind gewährt
+// restricted → lead + admin).
+// =============================================================================
+const TRANSCRIPT_DISCOVERY = [
+  'Transkript — Discovery-Call · Küstenlicht Energie GmbH × Nordwind GmbH',
+  'Datum: 12.06.2026 · Dauer: 48 Minuten · Aufzeichnung mit Einverständnis beider Seiten',
+  'Teilnehmende: Frau Dr. Marek (Leiterin Kundenservice, Küstenlicht), Herr Voss (IT-Leiter, Küstenlicht), Frau Ohlsen (Beraterin, Nordwind)',
+  '',
+  'Ohlsen: Vielen Dank, dass Sie sich die Zeit nehmen. Damit ich Ihr Anliegen richtig verstehe: Wo drückt der Schuh im Moment am meisten?',
+  'Dr. Marek: Am deutlichsten im Kundenservice. Wir sind ein regionaler Energieversorger mit rund achtzigtausend Privatkunden. Unser Serviceteam ertrinkt in wiederkehrenden Anfragen — Zählerstände, Abschlagsänderungen, Rechnungsfragen. Achtzig Prozent der Tickets sind Varianten derselben zehn Fragen.',
+  'Ohlsen: Können Sie das in Zahlen fassen?',
+  'Dr. Marek: Wir bekommen etwa neunhundert Kontakte pro Woche, verteilt auf Telefon, E-Mail und ein Kontaktformular. Die durchschnittliche Bearbeitungszeit liegt bei knapp einem Tag, in Spitzenzeiten — Jahresabrechnung im Frühjahr — sind es drei bis vier Tage. Das führt zu Beschwerden und bindet mein ganzes Team.',
+  'Voss: Und die Daten liegen verstreut. Zählerstände im Abrechnungssystem, Kundenkommunikation im Ticketsystem, Vertragsdaten in einer dritten Anwendung. Wenn ein Mitarbeiter eine Frage beantwortet, klickt er sich durch drei Systeme.',
+  'Ohlsen: Verstanden. Was wäre für Sie ein Erfolg — woran würden Sie in sechs Monaten merken, dass sich etwas verbessert hat?',
+  'Dr. Marek: Erstens: Die Standardanfragen sollten die Kunden selbst lösen können, ohne uns. Zweitens: Wenn ein Mitarbeiter doch ran muss, will ich, dass er die Antwort in einer Ansicht hat, nicht in dreien. Drittens: Die Bearbeitungszeit für die einfachen Fälle soll unter zwei Stunden fallen.',
+  'Ohlsen: Gibt es Rahmenbedingungen, die ich kennen muss? Technisch oder organisatorisch?',
+  'Voss: Ja, mehrere. Das Abrechnungssystem ist ein Altsystem, an das wir nur über eine schmale Schnittstelle herankommen — Nur-Lese-Zugriff, nächtlicher Export. Ein direkter Schreibzugriff ist tabu, da hängt die Regulierung dran. Und wir sind an Datenschutz gebunden; Kundendaten dürfen die EU nicht verlassen.',
+  'Dr. Marek: Organisatorisch: Mein Team ist skeptisch. Es gab vor zwei Jahren ein Digitalisierungsprojekt, das im Sand verlaufen ist. Wenn wir das machen, muss es kleine, sichtbare Erfolge geben, nicht erst nach einem Jahr.',
+  'Ohlsen: Das ist ein wichtiger Punkt. Wer entscheidet am Ende über das Budget?',
+  'Dr. Marek: Die Freigabe liegt bei der Geschäftsführung, konkret bei unserem CFO. Für einen Piloten habe ich ein eigenes Budget im niedrigen fünfstelligen Bereich, ohne dass ich groß fragen muss. Für einen Rollout bräuchte ich einen Business Case, den der CFO sieht.',
+  'Ohlsen: Und ein zeitlicher Rahmen?',
+  'Dr. Marek: Vor der nächsten Jahresabrechnung im März muss spürbar etwas stehen. Ideal wäre ein Pilot im vierten Quartal, damit wir zur Spitzenlast im Frühjahr entlastet sind.',
+  'Voss: Von meiner Seite: Ich kann Ressourcen für die Schnittstellen bereitstellen, aber nicht unbegrenzt. Ein halber Entwicklertag pro Woche über das Quartal ist realistisch, mehr nicht.',
+  'Ohlsen: Sehr hilfreich. Lassen Sie mich zusammenfassen, was ich mitnehme: Der größte Hebel ist die Selbstbedienung für die zehn häufigsten Anfragen. Der zweite ist eine zusammengeführte Ansicht für die Mitarbeiter, damit sie nicht drei Systeme durchsuchen. Rahmen: Nur-Lese-Zugriff auf das Altsystem, EU-Datenhaltung, ein skeptisches Team, das frühe Erfolge braucht, ein Pilotbudget im niedrigen fünfstelligen Bereich und ein Zeitfenster bis März.',
+  'Dr. Marek: Das trifft es. Wenn Sie mir daraus einen klaren Fahrplan machen können — welche Use Cases zuerst, was sie bringen, was sie kosten — dann habe ich etwas, das ich dem CFO vorlegen kann.',
+  'Ohlsen: Genau das ist der nächste Schritt. Ich bereite ein Framework auf: priorisierte Use Cases mit Zielwerten und grober Aufwandsschätzung, plus eine Executive Summary für Ihren CFO. Melden würde ich mich nächste Woche.',
+  'Dr. Marek: Perfekt. Vielen Dank.',
+].join('\n');
+
+const TRANSCRIPT_FOLLOWUP = [
+  'Transkript — Kurzes Abstimmungsgespräch · Küstenlicht Energie GmbH × Nordwind GmbH',
+  'Datum: 19.06.2026 · Dauer: 17 Minuten',
+  'Teilnehmende: Herr Voss (IT-Leiter, Küstenlicht), Frau Ohlsen (Beraterin, Nordwind)',
+  '',
+  'Ohlsen: Danke, dass Sie kurz Zeit haben. Ich möchte vor dem Framework zwei technische Punkte absichern.',
+  'Voss: Gern.',
+  'Ohlsen: Erstens der nächtliche Export aus dem Abrechnungssystem — in welchem Format liegt der vor, und wie aktuell sind die Zählerstände darin?',
+  'Voss: Es ist ein CSV-Export, jede Nacht um zwei Uhr. Die Zählerstände sind damit maximal einen Tag alt. Für Abschlags- und Rechnungsfragen reicht das völlig; das ändert sich ja nicht stündlich.',
+  'Ohlsen: Gut, das heißt, für die Selbstbedienung können wir auf diesem Tagesstand aufsetzen, ohne den Live-Zugriff zu brauchen. Zweitens: Wenn ein Kunde im Self-Service nicht weiterkommt und an einen Mitarbeiter übergeben wird — dürfen wir den bisherigen Verlauf mitgeben?',
+  'Voss: Ja, solange es innerhalb unserer Systeme bleibt und die EU-Datenhaltung gewahrt ist. Was nicht geht, ist, die Daten an einen externen Dienst außerhalb der EU zu schicken.',
+  'Ohlsen: Verstanden, das halte ich als harte Rahmenbedingung fest. Letzte Frage: Gibt es eine Kennzahl, an der Ihre Geschäftsführung den Erfolg festmachen wird?',
+  'Voss: Der CFO schaut auf zwei Dinge: die Zahl der Kontakte, die das Team überhaupt erreichen, und die durchschnittliche Bearbeitungszeit. Wenn beide sichtbar sinken, ist er überzeugt.',
+  'Ohlsen: Damit kann ich arbeiten. Ich baue diese beiden Kennzahlen als Zielwerte ins Framework ein. Danke, Herr Voss.',
+  'Voss: Danke Ihnen.',
+].join('\n');
+
+const TRANSCRIPTS = [
+  {
+    title: 'Discovery-Call Küstenlicht Energie (Transkript)',
+    text: TRANSCRIPT_DISCOVERY,
+  },
+  {
+    title: 'Abstimmung Küstenlicht Energie (Transkript)',
+    text: TRANSCRIPT_FOLLOWUP,
   },
 ];
 
@@ -128,23 +235,41 @@ async function main() {
   });
   console.log(`— Org "${DEMO_ORG_NAME}" mit 3 Mitgliedschaften angelegt.`);
 
-  // 4 Wissens-Dokumente über die echte Ingestion (Chunks + Embeddings + Audit).
+  // Wissens- & Firmenwissen-Dokumente über die echte Ingestion (Chunks + Embeddings + Audit).
   for (const doc of DOCUMENTS) {
     const { chunkCount } = await ingestDocument({
       orgId: DEMO_ORG,
       actorId: ADMIN,
       title: doc.title,
-      source: 'manual',
+      source: doc.source,
       text: doc.text,
       visibility: doc.visibility,
     });
-    console.log(`— Ingestiert: "${doc.title}" (${doc.visibility}, ${chunkCount} Chunks)`);
+    console.log(`— Ingestiert: "${doc.title}" (${doc.source}, ${doc.visibility}, ${chunkCount} Chunks)`);
   }
 
-  // 2 Chat-Verläufe (+ eine ehrliche Kein-Wissen-Antwort für den Hinweis-Stil).
+  // Kundengespräch-Transkripte über dieselbe Ingestion — source 'transcript',
+  // restricted. Genau das Rohmaterial, das der `transkript_zu_framework`-Skill
+  // (Etappe 1) aufnimmt und zu einem Framework verdichtet.
+  for (const t of TRANSCRIPTS) {
+    const { chunkCount } = await ingestDocument({
+      orgId: DEMO_ORG,
+      actorId: ADMIN,
+      title: t.title,
+      source: 'transcript',
+      text: t.text,
+      visibility: 'restricted',
+    });
+    console.log(`— Transkript ingestiert: "${t.title}" (transcript, restricted, ${chunkCount} Chunks)`);
+  }
+
+  // Chat-Verläufe (+ eine ehrliche Kein-Wissen-Antwort für den Hinweis-Stil,
+  // + eine Frage, deren Antwort nur im Discovery-Transkript steht — zeigt, dass
+  // das Transkript als Wissen retrieval-bar ist).
   const QUESTIONS = [
     'Wie viele Urlaubstage haben Mitarbeitende pro Jahr?',
     'Welche Klasse wird bei Bahnfahrten erstattet?',
+    'Welche Rahmenbedingungen nannte Küstenlicht Energie im Discovery-Call?',
     'Wie lautet das WLAN-Passwort im Büro Hamburg?',
   ];
   for (const question of QUESTIONS) {
@@ -245,7 +370,10 @@ async function main() {
     approvals: await tx.approval.count(),
     audits: await tx.auditLog.count(),
   }));
-  console.log(`\n✅  Demo-Seed fertig: ${DOCUMENTS.length} Dokumente, ${QUESTIONS.length} Chat-Fragen, ${runs} Runs, ${approvals} Approvals, ${audits} Audit-Einträge.`);
+  console.log(
+    `\n✅  Demo-Seed fertig: ${DOCUMENTS.length} Dokumente + ${TRANSCRIPTS.length} Transkripte, ` +
+      `${QUESTIONS.length} Chat-Fragen, ${runs} Runs, ${approvals} Approvals, ${audits} Audit-Einträge.`,
+  );
 }
 
 main()
