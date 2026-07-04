@@ -14,6 +14,11 @@ chat that answers with sources** — see
 > application connects as a role that is physically incapable of seeing rows
 > outside its current tenant context.
 
+> 📄 **Kurzfassung für Außenstehende:** Eine verdichtete, ehrliche technische Übersicht
+> (was gebaut ist vs. was Vision ist, alle Angaben am Code verifiziert) liegt in
+> [`docs/ueberblick.md`](docs/ueberblick.md). Dieses README ist die tiefe, phasenweise
+> Engineering-Referenz.
+
 ---
 
 ## Table of contents
