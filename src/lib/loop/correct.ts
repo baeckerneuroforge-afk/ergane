@@ -24,7 +24,19 @@ import { withTenant } from '../tenant';
 import { resolveAutonomyContext } from './settings';
 
 export const CORRECTION_ACTOR = 'loop-engine';
+/** Audit action when a HUMAN triggered the correction (button / Slack). */
 export const CORRECTION_ACTION = 'flag.correction_requested';
+/** Audit action when the LOOP auto-started the correction (Schritt E, 'autonomous'). */
+export const AUTO_CORRECTION_ACTION = 'loop.auto_correction_started';
+
+/**
+ * Who triggered a correction. 'human' = a person clicked (button / Slack) →
+ * audited as flag.correction_requested with actorType 'human'. 'loop' = the loop
+ * auto-started it in 'autonomous' mode → audited as loop.auto_correction_started
+ * with actorType 'agent'. Either way the SAME run-start + gate logic runs; only
+ * the audit trail differs. The loop can start, never approve.
+ */
+export type CorrectionTrigger = 'human' | 'loop';
 
 /**
  * A correction that failed because of the CLIENT-supplied reference (unknown
@@ -43,14 +55,20 @@ export interface StartCorrectionInput {
   orgId: string;
   /**
    * WHO triggered it — the human's id (Clerk user id, or the resolved membership
-   * user id for a Slack click). Recorded in the audit trail. This is NOT an
-   * approval: it only says who asked for the re-run.
+   * user id for a Slack click), or the loop actor id ('loop-engine') for an
+   * auto-start. Recorded in the audit trail. This is NOT an approval: it only
+   * says who asked for the re-run.
    */
   actorUserId: string;
   /** The skill to re-run (from the flag's correction ref). Must be a known skill. */
   skillKey: string;
   /** The original run whose input is replayed. Its input + client are reused. */
   sourceRunId: string;
+  /**
+   * Human click (default) vs. loop auto-start. Switches the audit action +
+   * actorType; the run-start + gate logic is identical either way.
+   */
+  trigger?: CorrectionTrigger;
 }
 
 export interface StartCorrectionResult {
@@ -74,6 +92,8 @@ export async function startCorrectionRun(
   input: StartCorrectionInput,
 ): Promise<StartCorrectionResult> {
   const { orgId, actorUserId, skillKey, sourceRunId } = input;
+  const trigger: CorrectionTrigger = input.trigger ?? 'human';
+  const isLoop = trigger === 'loop';
   if (!actorUserId.trim()) throw new Error('startCorrectionRun: actorUserId is required.');
 
   // Validate the skill up front — never start an unknown skill. A bad skillKey
@@ -89,23 +109,26 @@ export async function startCorrectionRun(
   // tx. A foreign or missing runId is "not found" here (RLS scopes the lookup to
   // the tenant), so we can never replay another tenant's run — turn it into a
   // bad-request.
-  const { source, suggest } = await withTenant(orgId, async (tx) => ({
+  const { source, autonomy } = await withTenant(orgId, async (tx) => ({
     source: await tx.skillRun.findUnique({
       where: { id: sourceRunId },
       select: { skillKey: true, input: true, clientId: true },
     }),
-    suggest: (await resolveAutonomyContext(tx, orgId)).suggest,
+    autonomy: await resolveAutonomyContext(tx, orgId),
   }));
   if (!source) {
     throw new CorrectionBadRequestError(`Source run not found: ${JSON.stringify(sourceRunId)}.`);
   }
-  // Enforce the "report = no correction" invariant at TRIGGER time, not just when
-  // the flag was built: a stale button (a flag posted under 'suggest', then the
-  // admin reverted to 'report', then the old button is clicked) must not start a
-  // correction. Only 'suggest'/'autonomous' may trigger one.
-  if (!suggest) {
+  // Autonomy gate at TRIGGER time (defence in depth, not just when the flag was
+  // built). A human trigger needs 'suggest' or 'autonomous' (a stale button after
+  // a revert to 'report' must not start). A LOOP trigger needs 'autonomous'
+  // specifically — this is the second, independent assertion that only
+  // 'autonomous' auto-starts, so even a mis-wired loop caller can never start a
+  // correction on a 'suggest'/'report' tenant.
+  const allowed = isLoop ? autonomy.autoStart : autonomy.suggest;
+  if (!allowed) {
     throw new CorrectionBadRequestError(
-      'Corrections are disabled for this organization (autonomy level is "report").',
+      `Corrections are disabled for this organization (autonomy level is ${JSON.stringify(autonomy.autonomy)}).`,
     );
   }
   // Defence in depth: the re-run must be the SAME skill the flag pointed at.
@@ -121,22 +144,34 @@ export async function startCorrectionRun(
   // Hand off to the normal engine. startRun opens its OWN withTenant tx (we are
   // outside any tx here) and routes the run through guardrail + approval policy
   // → it may pause at awaiting_approval. We never touch that outcome.
-  const handle = await startRun(orgId, skill.key, replayInput, { clientId: source.clientId });
+  // isCorrection: true marks the run AT CREATION so, even if it completes
+  // synchronously and re-fails its criteria, the anti-loop guard recognises it
+  // (via skill_runs.is_correction) and never auto-corrects it again.
+  const handle = await startRun(orgId, skill.key, replayInput, {
+    clientId: source.clientId,
+    isCorrection: true,
+  });
 
-  // Audit the trigger AFTER the run exists. A human asked for it (actorType
-  // 'human'); actorId is the human. This is the trail that a correction was
-  // STARTED — the approval decision, if any, gets its own approval.* audit later.
+  // Audit the trigger AFTER the run exists. For a human it is
+  // flag.correction_requested (actorType 'human'); for a loop auto-start it is
+  // loop.auto_correction_started (actorType 'agent', actorId 'loop-engine'). The
+  // target carries the STARTED run's id (`skillKey:runId`) — the /flags + run UI
+  // read it to show "auto-started by the loop". (The anti-loop guard does NOT
+  // rely on this audit; it reads skill_runs.is_correction, set at creation, which
+  // is why a synchronously-completing correction run is stopped correctly.) The
+  // approval decision, if any, gets its own approval.* audit later.
   await withTenant(orgId, (tx) =>
     logAudit(tx, {
       orgId,
       actorId: actorUserId,
-      actorType: 'human',
-      action: CORRECTION_ACTION,
+      actorType: isLoop ? 'agent' : 'human',
+      action: isLoop ? AUTO_CORRECTION_ACTION : CORRECTION_ACTION,
       target: `${skill.key}:${handle.runId}`,
       detail: {
         sourceRunId,
         clientId: source.clientId,
         resultStatus: handle.status,
+        trigger,
       },
     }),
   );

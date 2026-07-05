@@ -201,6 +201,10 @@ export const en = {
     correctionStarted: 'Correction started — awaiting approval.',
     correctionStartedNoGate: 'Correction started.',
     correctionFailed: 'Could not start the correction.',
+    // Schritt E: the loop auto-started a correction (autonomy 'autonomous').
+    autoStarted: 'Auto-started by the loop',
+    autoStartedRun: 'Open correction run →',
+    autoLimitReached: 'Daily auto-correction limit reached — not auto-started',
   },
 
   value: {
@@ -397,6 +401,9 @@ export const en = {
     stepDone: 'done',
     stepFailed: 'failed',
     stepPending: 'pending',
+    // Schritt E: this run was auto-started by the loop (autonomy 'autonomous').
+    autoStartedByLoop: 'Auto-started by the loop',
+    autoStartedByLoopHint: 'The loop started this correction automatically. It still needs your approval like any run.',
     awaitingApproval: 'Awaiting approval:',
     toApprovalQueue: 'To the approval queue →',
     steps: 'Steps',
@@ -553,8 +560,8 @@ export const en = {
       levelAutonomous: 'Autonomous',
       levelAutonomousDesc:
         'The loop starts the correction itself — but it still goes through the normal approval gate (a human approves or rejects). The loop can start a run, never approve one.',
-      autonomousNotActive:
-        'Not active yet: this level behaves like “Suggest” for now. Automatic starting arrives in a later step.',
+      autonomousLimits: (n: number) =>
+        `The loop auto-starts corrections (max. ${n}/day per organization); they still need your approval. No auto-start from correction runs (no loops).`,
       defaultBadge: 'Default',
       save: 'Save autonomy level',
       thresholdsTitle: 'Process-metric thresholds',

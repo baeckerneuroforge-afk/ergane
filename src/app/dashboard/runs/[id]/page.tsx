@@ -53,13 +53,20 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const r = t.runDetail;
   const sim = r.simulation;
 
-  const { run, steps, approvals } = await withTenant(orgId, async (tx) => ({
+  const { run, steps, approvals, autoStartedEntry } = await withTenant(orgId, async (tx) => ({
     // RLS scopes to the tenant — a foreign run id is simply "not found".
     run: await tx.skillRun.findUnique({ where: { id } }),
     steps: await tx.skillStep.findMany({ where: { runId: id }, orderBy: { idx: 'asc' } }),
     approvals: await tx.approval.findMany({ where: { runId: id }, orderBy: { createdAt: 'asc' } }),
+    // Schritt E: was THIS run auto-started by the loop? Its start writes a
+    // loop.auto_correction_started audit entry whose target ends with `:<runId>`.
+    autoStartedEntry: await tx.auditLog.findFirst({
+      where: { action: 'loop.auto_correction_started', target: { endsWith: `:${id}` } },
+      select: { id: true },
+    }),
   }));
   if (!run) notFound();
+  const wasAutoStarted = autoStartedEntry !== null;
 
   // Merge the declared steps of the skill with what actually ran.
   let declaredSteps: string[] = [];
@@ -83,6 +90,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           </h2>
           <RunStatusChip status={run.status} locale={locale} />
           {run.mode === 'simulation' ? <SimulationBadge locale={locale} /> : null}
+          {wasAutoStarted ? (
+            <span className="chip chip--indigo" title={r.autoStartedByLoopHint}>
+              {r.autoStartedByLoop}
+            </span>
+          ) : null}
         </div>
         <div className="row-meta">
           <span className="mono">{run.id}</span> · {r.started} {formatDateTime(run.createdAt, locale)}

@@ -15,7 +15,8 @@ import { listSkills } from '@/lib/skills';
 import { getValueSettings, DEFAULT_HOURLY_RATE_USD } from '@/lib/value';
 import { VisibilityBadge, formatEuro } from '../ui';
 import { POLICY_PRESETS } from '@/lib/policies';
-import { DEFAULT_LOOP_AUTONOMY, LOOP_AUTONOMY_LEVELS } from '@/lib/loop/settings';
+import { DEFAULT_LOOP_AUTONOMY, LOOP_AUTONOMY_LEVELS, shouldAutoStart } from '@/lib/loop/settings';
+import { MAX_AUTO_CORRECTIONS_PER_DAY } from '@/lib/loop/auto-correct';
 import { METRIC_THRESHOLDS } from '@/lib/loop/metrics';
 import { frameworkCriteria } from '@/lib/loop/criteria/framework';
 import {
@@ -823,9 +824,9 @@ export default async function SettingsPage({
                           </span>
                         ) : null}
                         <div className="row-meta">{desc}</div>
-                        {level === 'autonomous' ? (
+                        {shouldAutoStart(level) ? (
                           <div className="row-meta" style={{ marginTop: '0.3rem' }}>
-                            <span className="chip chip--amber">{s.loop.autonomousNotActive}</span>
+                            <span className="chip chip--amber">{s.loop.autonomousLimits(MAX_AUTO_CORRECTIONS_PER_DAY)}</span>
                           </div>
                         ) : null}
                       </span>

@@ -1,5 +1,6 @@
-// The correction proposal attached to a flag when autonomy is 'suggest' (or
-// 'autonomous', which behaves like suggest until Schritt E) — plan §4.
+// The correction proposal attached to a flag when autonomy is 'suggest' or
+// 'autonomous' — plan §4. Under 'suggest' a human triggers it; under 'autonomous'
+// the loop auto-starts it (Schritt E). The proposal itself is identical.
 //
 // SCOPE, deliberately narrow (plan §11, risk D): a proposal is ONLY ever a
 // re-run of the SAME skill with the SAME inputs. No new logic, no cleverness —

@@ -202,6 +202,10 @@ export const de: Dictionary = {
     correctionStarted: 'Korrektur gestartet — wartet auf Freigabe.',
     correctionStartedNoGate: 'Korrektur gestartet.',
     correctionFailed: 'Die Korrektur konnte nicht gestartet werden.',
+    // Schritt E: der Loop hat eine Korrektur automatisch gestartet (Autonomie 'autonomous').
+    autoStarted: 'Automatisch vom Loop gestartet',
+    autoStartedRun: 'Korrektur-Lauf öffnen →',
+    autoLimitReached: 'Tages-Limit für Auto-Korrekturen erreicht — nicht automatisch gestartet',
   },
 
   value: {
@@ -399,6 +403,9 @@ export const de: Dictionary = {
     stepDone: 'erledigt',
     stepFailed: 'fehlgeschlagen',
     stepPending: 'ausstehend',
+    // Schritt E: dieser Lauf wurde vom Loop automatisch gestartet (Autonomie 'autonomous').
+    autoStartedByLoop: 'Automatisch vom Loop gestartet',
+    autoStartedByLoopHint: 'Der Loop hat diese Korrektur automatisch gestartet. Sie braucht weiterhin deine Freigabe wie jeder Lauf.',
     awaitingApproval: 'Wartet auf Freigabe:',
     toApprovalQueue: 'Zur Freigaben-Warteschlange →',
     steps: 'Schritte',
@@ -550,8 +557,8 @@ export const de: Dictionary = {
       levelAutonomous: 'Autonom',
       levelAutonomousDesc:
         'Der Loop startet die Korrektur selbst — sie durchläuft aber das normale Approval-Gate (ein Mensch gibt frei oder lehnt ab). Der Loop kann einen Lauf starten, aber nie freigeben.',
-      autonomousNotActive:
-        'Noch nicht aktiv: Diese Stufe verhält sich vorerst wie „Vorschlagen“. Das automatische Starten kommt in einem späteren Schritt.',
+      autonomousLimits: (n: number) =>
+        `Der Loop startet Korrekturen automatisch (max. ${n}/Tag pro Organisation), sie durchlaufen weiterhin die Freigabe. Kein Auto-Start aus Korrektur-Läufen (keine Schleifen).`,
       defaultBadge: 'Standard',
       save: 'Autonomie-Stufe speichern',
       thresholdsTitle: 'Prozess-Metrik-Schwellen',

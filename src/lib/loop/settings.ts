@@ -5,8 +5,9 @@
 //      setting.
 //   2. This value configures BEHAVIOUR within a tenant: 'report' (Default) just
 //      flags + notifies; 'suggest' additionally attaches a correction proposal a
-//      human can trigger. 'autonomous' is reserved for Schritt E and, until then,
-//      behaves exactly like 'suggest' (effectiveAutonomy() below).
+//      human triggers; 'autonomous' also attaches the proposal AND the loop
+//      auto-starts the correction itself (Schritt E) — still behind the approval
+//      gate + a daily limit + anti-loop guard (see shouldAutoStart / auto-correct.ts).
 //
 // Fail-closed default: no org_settings row, or the field somehow unreadable,
 // ⇒ 'report' — the safe, unchanged behaviour, never a surprise suggestion.
@@ -41,12 +42,12 @@ export async function getLoopAutonomy(orgId: string): Promise<LoopAutonomy> {
 }
 
 /**
- * The autonomy level that is actually IN EFFECT today. 'autonomous' is defined
- * in the enum and selectable in settings, but the auto-start machinery is not
- * built yet (Schritt E). Until it is, 'autonomous' behaves EXACTLY like
- * 'suggest': a proposal a human still has to trigger. Collapsing it here — in
- * one place — means the flag paths never have to special-case it, and the day
- * Schritt E lands there is a single seam to change.
+ * The level's PROPOSAL behaviour, collapsed to two cases. Both 'suggest' and
+ * 'autonomous' attach a correction proposal to a flag — the difference is only
+ * WHO triggers it (a human click vs. the loop). So for the proposal-attachment
+ * question they are the same, and mapping 'autonomous' → 'suggest' here lets the
+ * flag paths ask one question (shouldSuggest) without special-casing. Whether the
+ * loop ALSO auto-starts is a separate question — see shouldAutoStart (Schritt E).
  */
 export function effectiveAutonomy(level: LoopAutonomy): LoopAutonomy {
   return level === 'autonomous' ? 'suggest' : level;
@@ -57,11 +58,24 @@ export function shouldSuggest(level: LoopAutonomy): boolean {
   return effectiveAutonomy(level) === 'suggest';
 }
 
+/**
+ * True when the loop should AUTO-START the correction itself, without a human
+ * click (Schritt E) — ONLY at 'autonomous'. The auto-started run still goes
+ * through the normal approval gate; the loop starts, never approves. 'report'
+ * and 'suggest' are always false here (suggest attaches the proposal but waits
+ * for the human).
+ */
+export function shouldAutoStart(level: LoopAutonomy): boolean {
+  return level === 'autonomous';
+}
+
 export interface AutonomyContext {
   autonomy: LoopAutonomy;
   locale: Locale;
-  /** effectiveAutonomy(autonomy) === 'suggest' — the flag paths' one question. */
+  /** shouldSuggest(autonomy) — attach a correction proposal to the flag? */
   suggest: boolean;
+  /** shouldAutoStart(autonomy) — should the loop auto-start the correction (Schritt E)? */
+  autoStart: boolean;
 }
 
 /**
@@ -77,7 +91,12 @@ export async function resolveAutonomyContext(tx: Tx, orgId: string): Promise<Aut
   });
   const autonomy = settings?.loopAutonomy ?? DEFAULT_LOOP_AUTONOMY;
   const locale: Locale = isLocale(settings?.locale) ? settings.locale : DEFAULT_LOCALE;
-  return { autonomy, locale, suggest: shouldSuggest(autonomy) };
+  return {
+    autonomy,
+    locale,
+    suggest: shouldSuggest(autonomy),
+    autoStart: shouldAutoStart(autonomy),
+  };
 }
 
 export interface SetLoopAutonomyInput {

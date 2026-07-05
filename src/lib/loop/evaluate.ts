@@ -3,6 +3,7 @@ import { logAudit } from '../audit';
 import { getDictionary } from '../i18n';
 import { getSkill } from '../skills';
 import { withTenant } from '../tenant';
+import { maybeAutoCorrect } from './auto-correct';
 import { frameworkCriteria } from './criteria/framework';
 import type { AcceptanceCriteriaSet, CriterionResult } from './criteria/types';
 import { toFlagView } from './flags-view';
@@ -133,11 +134,20 @@ export async function evaluateDeliverableCriteria(
     });
   });
 
-  // AFTER the commit: best-effort notification (e-mail + Slack). notifyFlag
-  // never throws; a failure here leaves the flag — which already exists —
-  // untouched. This is the ONLY thing that happens outside the flag tx.
+  // AFTER the commit (best-effort, never touching the flag tx): notify + maybe
+  // auto-correct. Both leave the already-committed flag untouched on any failure.
   if (flagRow) {
     await notifyFlag(orgId, toFlagView(flagRow));
+
+    // Schritt E: at autonomy 'autonomous', the loop auto-starts the correction
+    // ITSELF (no human click). Only criteria flags carry a `correction` re-run
+    // pointer, so only they can auto-start. maybeAutoCorrect is self-contained
+    // (re-checks autonomy + the anti-loop + daily-limit brakes) and never throws;
+    // the started run still goes through the normal approval gate. A non-
+    // autonomous tenant gets a silent no-op here.
+    if (proposal.correction) {
+      await maybeAutoCorrect(orgId, proposal.correction);
+    }
   }
 
   return trace;

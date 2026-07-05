@@ -91,6 +91,13 @@ export async function runLoopTickForOrg(orgId: string, since: Date): Promise<num
   // AFTER commit: notify per new flag, best-effort. notifyFlag never throws, so
   // one org's mail/Slack hiccup cannot fail its tick (and runLoopTick isolates a
   // tenant anyway). Returns the count of NEW flags for the sweep tally.
+  //
+  // NOTE (Schritt E): metric flags deliberately carry NO `correction` re-run
+  // pointer — a process-metric trend has no single originating run to replay
+  // (see buildMetricFlag / suggest.ts). So there is nothing to auto-start here,
+  // even at autonomy 'autonomous': the cron tick only reports metric deviations.
+  // Auto-correction applies solely to criteria flags (evaluate.ts), which DO
+  // carry a concrete re-runnable run.
   for (const row of flagRows) {
     await notifyFlag(orgId, toFlagView(row));
   }

@@ -304,6 +304,10 @@ model SkillRun {
   result    Json?
   /// Loop acceptance-criteria trace (DeliverableTrace). NULL for runs without criteria.
   trace     Json?
+  /// True when this run was started AS a loop correction (Schritt E). Set at
+  /// creation so the run's own criteria evaluation can see it and never
+  /// auto-correct a correction run again (anti-loop guard). Default false.
+  isCorrection Boolean     @default(false) @map("is_correction")
   clientId  String?        @map("client_id") @db.Uuid
   createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

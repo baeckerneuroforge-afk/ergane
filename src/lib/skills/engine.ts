@@ -88,6 +88,13 @@ export interface StartRunOptions {
   mode?: SkillRunMode;
   /** Optional link to a client entity. NULL = run not associated with a client. */
   clientId?: string | null;
+  /**
+   * True when this run is started AS a loop correction (Schritt E). Persisted on
+   * the run at creation so the run's OWN end-of-run criteria evaluation sees it
+   * and never auto-corrects a correction run again (the anti-loop guard). Only
+   * startCorrectionRun sets this; every other start leaves it false.
+   */
+  isCorrection?: boolean;
 }
 
 /**
@@ -107,6 +114,7 @@ export async function startRun(
   const skill = getSkill(skillKey);
   const mode: SkillRunMode = opts.mode ?? 'live';
   const clientId = opts.clientId ?? null;
+  const isCorrection = opts.isCorrection ?? false;
 
   const run = await withTenant(orgId, async (tx) => {
     // Kostenschutz: Tageslimit für Skill-Läufe (weiches Limit, siehe limits.ts).
@@ -114,7 +122,10 @@ export async function startRun(
     // wie ein Live-Lauf; nur die WIRKENDEN Schritte entfallen.
     await assertWithinDailyLimit(tx, 'run');
     const created = await tx.skillRun.create({
-      data: { orgId, skillKey: skill.key, status: 'running', mode, input: asJson(input), clientId },
+      // is_correction is set here, at creation, so the run's OWN end-of-run
+      // criteria evaluation (evaluateDeliverableCriteria) already sees it and the
+      // anti-loop guard never escalates a correction-run flag to another run.
+      data: { orgId, skillKey: skill.key, status: 'running', mode, input: asJson(input), clientId, isCorrection },
     });
     await logAudit(tx, {
       orgId,
