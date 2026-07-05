@@ -1,0 +1,23 @@
+-- Index audit_log.action for prefix filters (Audit-Fix F1, docs/audit/2026-07-05-fix-plan.md).
+--
+-- audit_log.action is filtered by LIKE 'prefix%' on the hottest paths:
+--   - the dashboard LAYOUT counts action LIKE 'flag.%' on EVERY navigation
+--     (src/app/dashboard/layout.tsx),
+--   - the cockpit does the same twice (src/app/dashboard/page.tsx),
+--   - the audit + flags pages filter action LIKE 'skill.%'/'guardrail.%'/... for
+--     both a findMany and a count (src/lib/audit.ts),
+--   - the loop cron dedups on action = '...' + created_at window
+--     (src/lib/loop/tick.ts, src/lib/loop/auto-correct.ts).
+--
+-- The existing (org_id, created_at) index serves the time bound but leaves the
+-- `action LIKE` as an unindexed filter over every row in the window — and
+-- audit_log is append-only (never pruned), so that scan grows unbounded.
+--
+-- `text_pattern_ops` is the operator class that makes an anchored `LIKE 'x%'`
+-- an index range scan (the default btree opclass cannot be used for LIKE under
+-- non-C collations). Equality filters (action = '...') also use it. Prisma's
+-- schema DSL cannot express an operator class, so this migration is the source
+-- of truth; schema.prisma declares a matching @@index only so Prisma does not
+-- try to add a second, default-opclass index on the same columns.
+CREATE INDEX "audit_log_org_id_action_created_at_idx"
+  ON "audit_log" ("org_id", "action" text_pattern_ops, "created_at" DESC);

@@ -37,7 +37,7 @@ import { getOrgLocale } from '../../i18n/org';
 import { DEFAULT_LOCALE, isLocale, type Locale } from '../../i18n';
 import { getClientHistory, type ClientHistory } from '../../memory/history';
 import type { SkillDef, SkillJson } from '../types';
-import { holeWissen, rolleAusInput, type WissensTreffer } from './wissen';
+import { embedFrage, holeWissen, rolleAusInput, type WissensTreffer } from './wissen';
 
 export const FRAMEWORK_GUARDRAIL_REASON =
   'Generative deliverable — a newly authored framework, human approval required before it is finalized';
@@ -308,7 +308,14 @@ export const transkriptZuFramework: SkillDef = {
       // ausserdem die Org-Locale (hier ist eine Tx) und reicht sie über den
       // State an den generativen Step — damit prepare() KEINE Tx braucht.
       name: 'transkript_kontext',
-      run: async ({ orgId, tx, input }) => {
+      // F5: den Embedding-Netz-Call VOR der Transaktion (prepare, Tx-frei); run()
+      // reicht den fertigen Vektor an holeWissen → nur die SQL läuft in der Tx.
+      prepare: async ({ input }) => {
+        const { thema, fokus } = parseInput(input);
+        const frage = fokus ? `${thema} ${fokus}` : thema;
+        return { queryVector: await embedFrage(frage) };
+      },
+      run: async ({ orgId, tx, input, prepared }) => {
         const { thema, fokus } = parseInput(input);
         const rolle = rolleAusInput(input);
         const locale = await getOrgLocale(tx, orgId);
@@ -319,6 +326,7 @@ export const transkriptZuFramework: SkillDef = {
           rolle,
           k: CONTEXT_K,
           source: 'transcript',
+          queryVector: prepared?.queryVector as number[] | undefined,
         });
         // Read clientId from the run row so it's available to later steps.
         const run = await tx.skillRun.findFirst({

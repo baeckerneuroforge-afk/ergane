@@ -24,6 +24,7 @@ import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/s
 import { createClient, updateClient } from '@/lib/clients';
 import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
 import { setValueSettings } from '@/lib/value';
+import { logInfo } from '@/lib/log';
 
 const MODES: ApprovalMode[] = ['always', 'threshold', 'never'];
 const APPROVER_ROLES: Role[] = ['lead', 'admin'];
@@ -346,8 +347,9 @@ export async function eraseOrganization(formData: FormData) {
   const proof = await deleteOrganization({ orgId, actorUserId: userId, confirmName });
 
   // The tenant no longer exists — log the proof server-side (the caller should
-  // have exported first; the UI says so) and leave the dashboard.
-  console.info('[lifecycle] organization erased:', JSON.stringify(proof));
+  // have exported first; the UI says so) and leave the dashboard. logInfo runs
+  // the payload through maskSecrets (the proof is counts + ids only, no PII).
+  logInfo('lifecycle: organization erased', { proof });
   const { redirect } = await import('next/navigation');
   redirect('/select-org');
 }

@@ -48,7 +48,14 @@ export class FakeBlobProvider implements BlobProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Real provider: Vercel Blob (private). The token comes from env only.
+// Real provider: Vercel Blob (PRIVATE). The token comes from env only.
+//
+// Artifacts are tenant data (generated offers/invoices/frameworks), so blobs are
+// stored with `access: 'private'` — they are NOT reachable via an anonymous URL.
+// Reads go through the authenticated SDK `get(pathname, { access: 'private' })`
+// (which resolves the store from the token), never a bare `fetch(url)`. The one
+// sanctioned read path is the RLS-gated /api/artifacts/[id]/download route, which
+// streams these bytes only after confirming the caller's org owns the artifact.
 // ---------------------------------------------------------------------------
 
 class VercelBlobProvider implements BlobProvider {
@@ -62,30 +69,34 @@ class VercelBlobProvider implements BlobProvider {
   async put(key: string, bytes: Uint8Array, contentType: string): Promise<BlobRef> {
     const { put } = await import('@vercel/blob');
     const blob = await put(key, Buffer.from(bytes), {
-      access: 'public',
+      access: 'private',
       token: this.token,
       contentType,
       addRandomSuffix: false,
     });
+    // The returned url is the store URL; for a private blob it is not anonymously
+    // fetchable. We keep it in the ref for parity, but reads use get() by key.
     return { key, url: blob.url, contentType, size: bytes.length };
   }
 
   async get(key: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-    const { list } = await import('@vercel/blob');
-    const result = await list({ prefix: key, limit: 1, token: this.token });
-    const match = result.blobs.find((b) => b.pathname === key);
-    if (!match) return null;
-    const res = await fetch(match.url);
-    if (!res.ok) return null;
-    const buffer = await res.arrayBuffer();
-    return { bytes: new Uint8Array(buffer), contentType: (match as unknown as { contentType?: string }).contentType ?? 'application/octet-stream' };
+    const { get } = await import('@vercel/blob');
+    // Authenticated read by pathname (the key). Resolves the store from the
+    // read-write token; returns null when the blob does not exist.
+    const result = await get(key, { access: 'private', token: this.token });
+    if (!result || result.statusCode !== 200) return null;
+    const buffer = await new Response(result.stream).arrayBuffer();
+    return {
+      bytes: new Uint8Array(buffer),
+      contentType: result.blob.contentType ?? 'application/octet-stream',
+    };
   }
 
   async delete(key: string): Promise<void> {
-    const { list, del } = await import('@vercel/blob');
-    const result = await list({ prefix: key, limit: 1, token: this.token });
-    const match = result.blobs.find((b) => b.pathname === key);
-    if (match) await del(match.url, { token: this.token });
+    const { del } = await import('@vercel/blob');
+    // del accepts a pathname (not only a url) as long as the token has access to
+    // the store — so we can delete by key without a preceding list()/fetch.
+    await del(key, { token: this.token });
   }
 }
 

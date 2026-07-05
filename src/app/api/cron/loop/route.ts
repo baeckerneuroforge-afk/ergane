@@ -10,6 +10,7 @@
 // in runLoopTick() so it stays testable and the route stays thin.
 import { runLoopTick } from '@/lib/loop/tick';
 import { logError, logInfo } from '@/lib/log';
+import { cronSecretMatches } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export async function GET(req: Request): Promise<Response> {
   if (!secret) {
     return Response.json({ ok: false, error: 'cron not configured' }, { status: 503 });
   }
-  if (req.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!cronSecretMatches(req.headers.get('authorization'), secret)) {
     return Response.json({ ok: false }, { status: 401 });
   }
 

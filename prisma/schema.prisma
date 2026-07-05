@@ -504,6 +504,11 @@ model AuditLog {
 
   @@index([orgId, createdAt(sort: Desc)])
   @@index([orgId, actorId, createdAt(sort: Desc)])
+  // action is filtered by LIKE 'prefix%' on hot paths (flag badge on every
+  // navigation, audit/flags pages, loop cron dedup). The migration creates this
+  // with `text_pattern_ops` so the prefix-LIKE is an index range scan; this
+  // declaration only keeps Prisma from adding a duplicate default-opclass index.
+  @@index([orgId, action, createdAt(sort: Desc)], map: "audit_log_org_id_action_created_at_idx")
   @@map("audit_log")
 }
 

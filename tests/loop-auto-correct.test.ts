@@ -38,6 +38,7 @@ import {
   maybeAutoCorrect,
   MAX_AUTO_CORRECTIONS_PER_DAY,
   AUTO_CORRECTION_LIMIT_ACTION,
+  AUTO_CORRECTION_RESERVED_ACTION,
 } from '../src/lib/loop/auto-correct';
 import { AUTO_CORRECTION_ACTION } from '../src/lib/loop/correct';
 import { evaluateDeliverableCriteria } from '../src/lib/loop/evaluate';
@@ -334,6 +335,80 @@ describe('maybeAutoCorrect', () => {
     const cross = await maybeAutoCorrect(ORG, angebotCorrection(otherRun));
     expect(cross).toEqual({ kind: 'skipped', reason: 'error' });
     expect(await awaitingAngebotRuns(ORG)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Daily-limit RACE fix (Audit-Fix F3): the cap is enforced atomically per org.
+//
+// The bug: the pre-fix guard counted the trailing loop.auto_correction_started
+// audit (written AFTER the run starts) in a tx SEPARATE from the start, so two
+// concurrent criteria flags could both read used<limit and OVER-start past the
+// cap. The fix: an advisory lock serialises per-org decisions, and the daily
+// count is taken over a RESERVATION row written inside that same locked tx
+// (loop.auto_correction_reserved) — count-then-reserve is atomic.
+//
+// NOTE ON CONCURRENCY: tests/setup.ts pins app_user to connection_limit=1, so
+// the shared `prisma` cannot truly run two withTenant txs in parallel. These
+// tests therefore verify the RESERVATION INVARIANT that makes the fix correct —
+// exactly one reservation per start, count keyed off reservations, and the lock
+// SQL executing under Prisma's parameter binding (the ::int4 cast). A separate
+// app_user pool would be needed to exercise wall-clock parallelism; the
+// invariant below is what guarantees correctness once it does.
+// ---------------------------------------------------------------------------
+describe('auto-correction daily-limit race fix', () => {
+  it('writes exactly one reservation per started correction', async () => {
+    await setLoopAutonomy({ orgId: ORG, actorUserId: ADMIN, level: 'autonomous' });
+    const src = await seedAngebotRun(ORG);
+
+    const outcome = await maybeAutoCorrect(ORG, angebotCorrection(src));
+    expect(outcome.kind).toBe('started');
+
+    // One reservation, and it was written (the count key) — plus the canonical
+    // start-audit still exists for the UI (distinct action).
+    const reservations = await auditRows(ORG, AUTO_CORRECTION_RESERVED_ACTION);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]!.detail).toMatchObject({ sourceRunId: src });
+    expect((await auditRows(ORG, AUTO_CORRECTION_ACTION)).length).toBe(1);
+  });
+
+  it('caps starts at MAX even when the trailing start-audit is absent (counts reservations, not starts)', async () => {
+    await setLoopAutonomy({ orgId: ORG, actorUserId: ADMIN, level: 'autonomous' });
+
+    // Simulate MAX reservations already present in the window WITHOUT any
+    // corresponding loop.auto_correction_started rows. The pre-fix code counted
+    // the start-audit and would have seen 0 → wrongly allowed another start. The
+    // fixed code counts reservations → already at the cap → blocks.
+    await withTenant(ORG, async (tx) => {
+      for (let i = 0; i < MAX_AUTO_CORRECTIONS_PER_DAY; i++) {
+        await logAudit(tx, {
+          orgId: ORG,
+          actorId: 'loop-engine',
+          actorType: 'agent',
+          action: AUTO_CORRECTION_RESERVED_ACTION,
+          target: `angebot_erstellen:seed-${i}`,
+          detail: { sourceRunId: `seed-${i}`, clientId: null },
+        });
+      }
+    });
+
+    const src = await seedAngebotRun(ORG);
+    const blocked = await maybeAutoCorrect(ORG, angebotCorrection(src));
+    expect(blocked).toEqual({ kind: 'skipped', reason: 'limit_reached' });
+    // No run started, no NEW reservation beyond the MAX we seeded.
+    expect(await awaitingAngebotRuns(ORG)).toHaveLength(0);
+    expect((await auditRows(ORG, AUTO_CORRECTION_RESERVED_ACTION)).length).toBe(MAX_AUTO_CORRECTIONS_PER_DAY);
+  });
+
+  it('the per-org advisory lock SQL executes (::int4 cast) without error', async () => {
+    // Guards the Prisma-binding pitfall: pg_advisory_xact_lock(numeric,int) does
+    // not exist, so a missing ::int4 cast would raise — and since maybeAutoCorrect
+    // swallows errors, the lock would silently never be taken. A successful
+    // auto-start proves the locked decision tx ran cleanly end to end.
+    await setLoopAutonomy({ orgId: ORG, actorUserId: ADMIN, level: 'autonomous' });
+    const src = await seedAngebotRun(ORG);
+    const outcome = await maybeAutoCorrect(ORG, angebotCorrection(src));
+    expect(outcome.kind).toBe('started'); // reached the start ⇒ lock+reserve ran
   });
 });
 

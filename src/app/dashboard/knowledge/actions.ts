@@ -8,6 +8,7 @@ import { setDocumentVisibility } from '@/lib/policies';
 import { ExtractionError, MAX_FILE_BYTES, extractText } from '@/lib/ingest/extract';
 import { deleteDocument } from '@/lib/lifecycle';
 import { ingestDocument } from '@/lib/rag';
+import { logError } from '@/lib/log';
 
 const MAX_UPLOAD_BYTES = 1_000_000; // 1 MB of plain text is plenty for now.
 
@@ -120,7 +121,7 @@ export async function ingestUpload(formData: FormData): Promise<UploadFileResult
       err instanceof ExtractionError
         ? err.message
         : 'Ingestion failed — please try again.';
-    if (!(err instanceof ExtractionError)) console.error('ingestUpload failed:', err);
+    if (!(err instanceof ExtractionError)) logError('ingestUpload failed', err);
     return { fileName, ok: false, error: message };
   }
 }
@@ -167,7 +168,7 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
       err instanceof ExtractionError
         ? err.message
         : 'New version failed — please try again.';
-    if (!(err instanceof ExtractionError)) console.error('reingestUpload failed:', err);
+    if (!(err instanceof ExtractionError)) logError('reingestUpload failed', err);
     return { fileName: file.name, ok: false, error: message };
   }
 }

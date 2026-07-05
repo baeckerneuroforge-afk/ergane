@@ -41,7 +41,7 @@
     "@prisma/client": "^6.3.0",
     "@vercel/blob": "^2.5.0",
     "mammoth": "^1.12.0",
-    "next": "^15.1.6",
+    "next": "^15.5.19",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "server-only": "^0.0.1",
@@ -64,6 +64,9 @@
       "@prisma/engines",
       "prisma",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "postcss@<8.5.10": ">=8.5.10"
+    }
   }
 }

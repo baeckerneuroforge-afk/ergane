@@ -33,6 +33,13 @@ const nextConfig = {
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           ...(isProd ? [{ key: 'X-Frame-Options', value: 'DENY' }] : []),
+          // HSTS: force HTTPS for two years incl. subdomains (production only —
+          // never send it in dev, where the app is served over plain http on
+          // localhost and a cached HSTS entry would break local access). Vercel
+          // terminates TLS, so the app is always HTTPS in prod.
+          ...(isProd
+            ? [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' }]
+            : []),
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],

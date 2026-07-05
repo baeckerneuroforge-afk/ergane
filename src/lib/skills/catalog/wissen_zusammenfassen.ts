@@ -17,7 +17,7 @@
 import { NO_KNOWLEDGE_ANSWER, SOURCES_MARKER } from '../../rag';
 import { getOrgLocale } from '../../i18n/org';
 import type { SkillDef, SkillJson } from '../types';
-import { holeWissen, rolleAusInput, type WissensTreffer } from './wissen';
+import { embedFrage, holeWissen, rolleAusInput, type WissensTreffer } from './wissen';
 
 function parseInput(input: SkillJson): { frage: string } {
   const frage = typeof input.frage === 'string' ? input.frage.trim() : '';
@@ -33,10 +33,17 @@ export const wissenZusammenfassen: SkillDef = {
     {
       // liest nur: rollenbewusstes Retrieval über die Wissensbasis.
       name: 'wissen_abgerufen',
-      run: async ({ orgId, tx, input }) => {
+      // F5: den Embedding-Netz-Call VOR der Transaktion machen (prepare, Tx-frei);
+      // run() reicht den fertigen Vektor an holeWissen → nur die SQL läuft in der Tx.
+      prepare: async ({ input }) => {
+        const { frage } = parseInput(input);
+        return { queryVector: await embedFrage(frage) };
+      },
+      run: async ({ orgId, tx, input, prepared }) => {
         const { frage } = parseInput(input);
         const rolle = rolleAusInput(input);
-        const treffer = await holeWissen(tx, { orgId, frage, rolle });
+        const queryVector = prepared?.queryVector as number[] | undefined;
+        const treffer = await holeWissen(tx, { orgId, frage, rolle, queryVector });
         return {
           frage,
           rolle: rolle || null,

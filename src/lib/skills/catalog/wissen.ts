@@ -18,9 +18,15 @@
 //
 // Ehrlichkeits-Schwelle wie answerQuestion(): nur Treffer mit similarity ≥
 // embedder.relevanceThreshold zählen; darunter gilt "kein Wissen".
-// Trade-off: der Embedding-Call läuft innerhalb der Step-Transaktion (mit dem
-// Fake-Provider lokal/instant; mit Voyage ein kurzer HTTP-Call gegen das
-// 15s-Transaktions-Timeout) — der Preis für die Atomarität des Steps.
+//
+// EMBEDDING außerhalb der Transaktion (Audit-Fix F5): der Embedding-Call ist ein
+// Netz-Aufruf (mit Voyage) und darf NICHT die Step-Transaktion offen halten
+// (Connection-Pool-Auslastung + 15s-Timeout). Deshalb berechnet der Step-
+// prepare()-Hook den Query-Vektor vorab (embedFrage(), Tx-frei) und reicht ihn
+// über ctx.prepared in run() → holeWissen(..., { queryVector }). Nur die SQL-
+// Abfrage (der eigentliche Tenant-Read) läuft dann in der Transaktion. Wird kein
+// Vektor übergeben, embedded holeWissen selbst — Rückwärtskompatibilität für
+// jeden anderen Aufrufer, aber die beiden Step-Aufrufer nutzen prepare().
 import type { DocumentSource } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { getEmbeddingProvider } from '../../ai';
@@ -43,6 +49,22 @@ export function rolleAusInput(input: SkillJson): string {
   return KNOWN_ROLES.includes(rolle) ? rolle : '';
 }
 
+/**
+ * Den Query-Vektor für eine Frage berechnen — der Netz-gebundene Teil des
+ * Retrievals, herausgelöst aus holeWissen (Audit-Fix F5). Tx-FREI: im
+ * prepare()-Hook eines Steps aufrufen, BEVOR die withTenant-Transaktion öffnet,
+ * und den Vektor über ctx.prepared in run() → holeWissen(..., { queryVector })
+ * reichen. Der Vektor ist als Zahl-Array JSON-serialisierbar (passt in ctx.prepared).
+ */
+export async function embedFrage(frage: string): Promise<number[]> {
+  const f = frage.trim();
+  if (!f) throw new Error('embedFrage: frage is required.');
+  const embedder = getEmbeddingProvider();
+  const [queryVector] = await embedder.embed([f], 'query');
+  assertDimensions([queryVector], embedder);
+  return queryVector;
+}
+
 export async function holeWissen(
   tx: Tx,
   opts: {
@@ -56,6 +78,12 @@ export async function holeWissen(
      * ist ADDITIV zum Rollen-Disclosure-Filter — beide müssen gelten.
      */
     source?: DocumentSource;
+    /**
+     * OPTIONAL: vorab berechneter Query-Vektor (aus embedFrage() im prepare()-
+     * Hook). Übergeben ⇒ kein Embedding-Netz-Call in der Transaktion (F5).
+     * Weggelassen ⇒ holeWissen embedded selbst (Rückwärtskompatibilität).
+     */
+    queryVector?: number[];
   },
 ): Promise<WissensTreffer[]> {
   const frage = opts.frage.trim();
@@ -63,7 +91,9 @@ export async function holeWissen(
   const k = opts.k ?? 5;
 
   const embedder = getEmbeddingProvider();
-  const [queryVector] = await embedder.embed([frage], 'query');
+  // Vorab-Vektor nutzen wenn vorhanden (F5: kein Netz-Call in der Tx), sonst
+  // hier embedden (alter Pfad). In beiden Fällen die Dimension prüfen.
+  const queryVector = opts.queryVector ?? (await embedder.embed([frage], 'query'))[0];
   assertDimensions([queryVector], embedder);
   const literal = toVectorLiteral(queryVector);
   const roleText = KNOWN_ROLES.includes(opts.rolle) ? opts.rolle : '';
