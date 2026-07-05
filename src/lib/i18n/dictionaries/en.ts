@@ -223,6 +223,9 @@ export const en = {
     assumptions: (rate: string) =>
       `Assumption: one saved hour is worth ${rate}. Admins can adjust rate and minutes per skill in the settings.`,
     hours: (n: number) => `${n} h`,
+    chartTitle: 'Value over time',
+    chartBarLabel: 'Value',
+    chartLineLabel: 'Runs',
   },
 
   onboarding: {

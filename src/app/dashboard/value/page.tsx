@@ -10,6 +10,7 @@ import { getI18n } from '@/lib/i18n/server';
 import { formatMoney } from '@/lib/money';
 import { withTenant } from '@/lib/tenant';
 import { computeValueStats } from '@/lib/value';
+import { ValueChart } from './value-chart';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,6 +86,14 @@ export default async function ValuePage({
         {' · '}
         {v.assumptions(formatMoney(stats.settings.hourlyRateUsd))}
       </p>
+
+      <ValueChart
+        months={stats.months}
+        locale={locale}
+        chartTitle={v.chartTitle}
+        barLabel={v.chartBarLabel}
+        lineLabel={v.chartLineLabel}
+      />
 
       <section className="card card--table">
         <div className="card-title">

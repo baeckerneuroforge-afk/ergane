@@ -1145,6 +1145,89 @@ pre.json {
   max-width: 46rem;
 }
 
+/* --- Value-Chart (SVG trend bars + run-count line) ------------------------ */
+.value-chart { overflow: visible; }
+.value-chart-scroll { overflow-x: auto; padding: 0.5rem 1.3rem 0.6rem; }
+.value-chart-svg { display: block; }
+
+.value-chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.value-chart-axis {
+  fill: var(--text-3);
+  font: 500 10px/1 var(--font-mono);
+}
+
+.value-chart-bar {
+  fill: var(--green);
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .value-chart-bar {
+    animation: bar-grow 0.5s var(--ease) both;
+    transform-origin: bottom;
+  }
+}
+
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+
+.value-chart-line {
+  fill: none;
+  stroke: var(--indigo);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.value-chart-dot {
+  fill: var(--card);
+  stroke: var(--indigo);
+  stroke-width: 2;
+}
+
+.value-chart-month {
+  fill: var(--text-3);
+  font: 500 10px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.value-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: 500 0.72rem/1 var(--font-mono);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.value-chart-legend-bar {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--green);
+  opacity: 0.75;
+}
+
+.value-chart-legend-line {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  background: var(--indigo);
+  border-radius: 1px;
+  margin-left: 0.6rem;
+}
+
 .empty {
   color: var(--text-3);
   border: 1px dashed var(--border-strong);

@@ -225,6 +225,9 @@ export const de: Dictionary = {
     assumptions: (rate: string) =>
       `Annahme: eine gesparte Stunde ist ${rate} wert. Admins passen Stundensatz und Minuten pro Skill in den Einstellungen an.`,
     hours: (n: number) => `${n} h`,
+    chartTitle: 'Wertentwicklung',
+    chartBarLabel: 'Wert',
+    chartLineLabel: 'Läufe',
   },
 
   onboarding: {
