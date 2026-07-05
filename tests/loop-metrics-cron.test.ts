@@ -11,7 +11,7 @@
 //   3. Cron route: fail-closed — no CRON_SECRET → 503, wrong bearer → 401,
 //      correct bearer + a metric under threshold → flag.metric_deviation in the
 //      audit trail; body carries only counters.
-//   4. Dedup: a second tick within 6h raises NO duplicate metric flag.
+//   4. Dedup: a second tick within 24h raises NO duplicate metric flag.
 //   5. Isolation: each org runs in its own tx; one tenant's failure is counted
 //      and skipped, the others still get checked.
 //
@@ -322,10 +322,27 @@ describe('GET /api/cron/loop', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Deduplication — no duplicate metric flag within 6h
+// 4. Deduplication — no duplicate metric flag within 24h (matches daily cron)
 // ---------------------------------------------------------------------------
-describe('dedup (6h window)', () => {
-  it('a second tick within 6h raises no duplicate flag', async () => {
+
+/**
+ * Seed a metric flag dated `hoursAgo` in the past. audit_log is append-only
+ * (no UPDATE), so we INSERT it backdated through the app path (app_user + RLS
+ * satisfied inside withTenant), rather than ageing an existing row.
+ */
+async function seedBackdatedMetricFlag(orgId: string, metric: string, hoursAgo: number) {
+  await withTenant(orgId, (tx) =>
+    tx.$executeRaw`
+      INSERT INTO "audit_log" ("org_id", "actor_id", "actor_type", "action", "target", "detail", "created_at")
+      VALUES (${orgId}::uuid, 'loop-engine', 'agent', 'flag.metric_deviation', ${metric},
+              ${JSON.stringify({ category: 'metric', metric })}::jsonb,
+              now() - (${hoursAgo} * interval '1 hour'))
+    `,
+  );
+}
+
+describe('dedup (24h window)', () => {
+  it('a second tick right after the first raises no duplicate flag', async () => {
     await seedRun(ORG_A, 's', 'completed');
     await seedRun(ORG_A, 's', 'failed');
     await seedRun(ORG_A, 's', 'failed');
@@ -339,22 +356,25 @@ describe('dedup (6h window)', () => {
     expect((await metricFlags(ORG_A)).length).toBe(afterFirst);
   });
 
-  it('a flag older than 6h does NOT suppress a new one', async () => {
+  it('a flag from ~23h ago (inside the window) still suppresses a new one', async () => {
     await seedRun(ORG_A, 's', 'completed');
     await seedRun(ORG_A, 's', 'failed');
     await seedRun(ORG_A, 's', 'failed');
 
-    // Seed a metric flag dated 7h ago — past the dedup horizon. audit_log is
-    // append-only (no UPDATE), so we INSERT it backdated through the app path
-    // (app_user + RLS satisfied inside withTenant), not by ageing a row.
-    await withTenant(ORG_A, (tx) =>
-      tx.$executeRaw`
-        INSERT INTO "audit_log" ("org_id", "actor_id", "actor_type", "action", "target", "detail", "created_at")
-        VALUES (${ORG_A}::uuid, 'loop-engine', 'agent', 'flag.metric_deviation', 'success_rate',
-                ${JSON.stringify({ category: 'metric', metric: 'success_rate' })}::jsonb,
-                now() - interval '7 hours')
-      `,
-    );
+    await seedBackdatedMetricFlag(ORG_A, 'success_rate', 23);
+    expect((await metricFlags(ORG_A)).length).toBe(1);
+
+    const again = await runLoopTickForOrg(ORG_A, daysAgo(7));
+    expect(again).toBe(0); // still within 24h → suppressed
+    expect((await metricFlags(ORG_A)).length).toBe(1);
+  });
+
+  it('a flag older than 24h does NOT suppress a new one', async () => {
+    await seedRun(ORG_A, 's', 'completed');
+    await seedRun(ORG_A, 's', 'failed');
+    await seedRun(ORG_A, 's', 'failed');
+
+    await seedBackdatedMetricFlag(ORG_A, 'success_rate', 25); // past the 24h horizon
     expect((await metricFlags(ORG_A)).length).toBe(1);
 
     const again = await runLoopTickForOrg(ORG_A, daysAgo(7));

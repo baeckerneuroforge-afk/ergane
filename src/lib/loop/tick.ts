@@ -5,7 +5,7 @@
 // needed, ids only. For each org it opens ONE short withTenant() transaction and
 // inside it:
 //   1. computeLoopMetrics()  — fast DB reads only,
-//   2. for each failed metric: a 6h dedup check, then logAudit() if new,
+//   2. for each failed metric: a 24h dedup check, then logAudit() if new,
 // ALL in that one transaction. A failing tenant is counted and skipped; it never
 // stops the others (same contract as runRetentionSweep).
 //
@@ -23,8 +23,12 @@ import { computeLoopMetrics } from './metrics';
 /** How far back the metric window reaches (plan §8: last 7 days). */
 export const LOOP_WINDOW_DAYS = 7;
 
-/** Dedup horizon: a metric flag is not repeated within this window (plan §8). */
-export const DEDUP_HOURS = 6;
+/**
+ * Dedup horizon: a metric flag is not repeated within this window. Matched to
+ * the cron cadence (once per day, vercel.json) so a daily tick never re-raises
+ * the same metric flag it already raised on the previous run.
+ */
+export const DEDUP_HOURS = 24;
 
 export interface LoopTickResult {
   orgs: number;
@@ -62,7 +66,7 @@ export async function runLoopTickForOrg(orgId: string, since: Date): Promise<num
     let raised = 0;
     for (const metric of metrics) {
       if (metric.passed) continue;
-      // Dedup in the SAME tx, before writing — no duplicate within 6h.
+      // Dedup in the SAME tx, before writing — no duplicate within 24h.
       if (await hasRecentMetricFlag(tx, metric.key)) continue;
       await logAudit(tx, buildMetricFlag(orgId, metric));
       raised += 1;
