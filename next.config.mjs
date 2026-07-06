@@ -4,6 +4,15 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  // External image domains for marketing site integration logos.
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'cdn.jsdelivr.net' },
+      { protocol: 'https', hostname: 'cdn.simpleicons.org' },
+      { protocol: 'https', hostname: 'svgl.app' },
+    ],
+  },
+
   // Pin the workspace root: a stray lockfile in the home directory otherwise
   // makes Turbopack scan far too wide a tree.
   turbopack: {

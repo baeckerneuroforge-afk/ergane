@@ -20,6 +20,13 @@ const isPublicRoute = createRouteMatcher([
   '/imprint',
   '/privacy',
   '/dpa',
+  // Marketing-Seiten: Product, Use Cases, Industries, Security, Pilot.
+  // Kein Tenant-Bezug — rein öffentliche Inhalte.
+  '/product(.*)',
+  '/use-cases(.*)',
+  '/industries(.*)',
+  '/security(.*)',
+  '/pilot(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/slack(.*)',
