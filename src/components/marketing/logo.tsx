@@ -35,6 +35,8 @@ const KNOWN: Record<
   github:             { gilbarbara: "github-icon",      simpleicons: "github",           color: "181717" },
   jira:               { gilbarbara: "jira",             simpleicons: "jira",             color: "0052CC" },
   hubspot:            { src: "https://cdn.simpleicons.org/hubspot/FF7A59", simpleicons: "hubspot", color: "FF7A59" },
+  powerpoint:         { svgl: "microsoft-powerpoint",                      color: "D24726" },
+  "microsoft-powerpoint": { svgl: "microsoft-powerpoint",                  color: "D24726" },
   salesforce:         { gilbarbara: "salesforce",       simpleicons: "salesforce",       color: "00A1E0" },
   sap:                { gilbarbara: "sap",              simpleicons: "sap",              color: "0FAAFF" },
 };

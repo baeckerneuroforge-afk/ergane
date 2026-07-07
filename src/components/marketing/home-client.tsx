@@ -77,7 +77,9 @@ export function DepartmentCard({
   );
 }
 
-/* ===== SkillRunSignature (hero visual) ===== */
+/* ===== SkillRunShowcase (hero visual) ===== */
+/* One card, several runs: each scenario is a different tool train through the
+   same operating system — input tool → knowledge/memory/skills/gate → output tool. */
 type SkillStep = {
   actor: "input" | "helix" | "guard" | "output";
   who: string;
@@ -85,13 +87,104 @@ type SkillStep = {
   status: "done" | "wait" | "info";
 };
 
-const SKILL_STEPS: SkillStep[] = [
-  { actor: "input",  who: "Gmail",      what: "Invoice received · Acme Corp · €1,240.00",   status: "done" },
-  { actor: "helix",  who: "Knowledge",  what: "Matched booking rule · policy.pdf p.14",     status: "done" },
-  { actor: "helix",  who: "Skills",     what: "Prepared booking in ledger",                 status: "done" },
-  { actor: "guard",  who: "Governance", what: "Amount over €1,000 · waiting for approval",  status: "wait" },
-  { actor: "helix",  who: "Skills",     what: "Approved by anna.k → posted to SAP",         status: "done" },
-  { actor: "output", who: "Audit log",  what: "+1 audit_log · immutable",                   status: "info" },
+type LogoSpec = {
+  gilbarbara?: string;
+  svgl?: string;
+  simpleicons?: string;
+  src?: string;
+  fallbackColor: string;
+};
+
+type SkillScenario = {
+  key: string;
+  input: { name: string; logo: LogoSpec };
+  output: { label: string; name: string; logo: LogoSpec };
+  steps: SkillStep[];
+};
+
+const SCENARIOS: SkillScenario[] = [
+  {
+    key: "book_invoices",
+    input: {
+      name: "Gmail",
+      logo: { gilbarbara: "google-gmail", simpleicons: "gmail", fallbackColor: "EA4335" },
+    },
+    output: {
+      label: "Booked in SAP",
+      name: "SAP",
+      logo: { gilbarbara: "sap", simpleicons: "sap", fallbackColor: "0FAAFF" },
+    },
+    steps: [
+      { actor: "input",  who: "Gmail",      what: "Invoice received · Acme Corp · €1,240.00",   status: "done" },
+      { actor: "helix",  who: "Knowledge",  what: "Matched booking rule · policy.pdf p.14",     status: "done" },
+      { actor: "helix",  who: "Skills",     what: "Prepared booking in ledger",                 status: "done" },
+      { actor: "guard",  who: "Governance", what: "Amount over €1,000 · waiting for approval",  status: "wait" },
+      { actor: "helix",  who: "Skills",     what: "Approved by anna.k → posted to SAP",         status: "done" },
+      { actor: "output", who: "Audit log",  what: "+1 audit_log · immutable",                   status: "info" },
+    ],
+  },
+  {
+    key: "call_to_deck",
+    input: {
+      name: "Zoom",
+      logo: { gilbarbara: "zoom-icon", simpleicons: "zoom", fallbackColor: "0B5CFF" },
+    },
+    output: {
+      label: "Deck in PowerPoint",
+      name: "PowerPoint",
+      logo: { svgl: "microsoft-powerpoint", fallbackColor: "D24726" },
+    },
+    steps: [
+      { actor: "input",  who: "Zoom",       what: "Discovery call ended · Nordwind GmbH · 47 min", status: "done" },
+      { actor: "helix",  who: "Knowledge",  what: "Matched template · discovery-deck v3",          status: "done" },
+      { actor: "helix",  who: "Memory",     what: "Recalled · wants EU hosting, Q3 rollout",       status: "done" },
+      { actor: "helix",  who: "Skills",     what: "Drafted 12-slide framework from transcript",    status: "done" },
+      { actor: "guard",  who: "Governance", what: "External deliverable · waiting for review",     status: "wait" },
+      { actor: "helix",  who: "Skills",     what: "Approved by jonas.m → deck exported",           status: "done" },
+      { actor: "output", who: "Audit log",  what: "+1 audit_log · immutable",                      status: "info" },
+    ],
+  },
+  {
+    key: "answer_ticket",
+    input: {
+      name: "Slack",
+      logo: { gilbarbara: "slack-icon", simpleicons: "slack", fallbackColor: "611F69" },
+    },
+    output: {
+      label: "Answered in Slack",
+      name: "Slack",
+      logo: { gilbarbara: "slack-icon", simpleicons: "slack", fallbackColor: "611F69" },
+    },
+    steps: [
+      { actor: "input",  who: "Slack",      what: "Question in #support · “Does Pro include SSO?”", status: "done" },
+      { actor: "helix",  who: "Knowledge",  what: "Retrieved · pricing.md + sso-guide p.2",         status: "done" },
+      { actor: "helix",  who: "Skills",     what: "Drafted answer · 2 sources cited",               status: "done" },
+      { actor: "guard",  who: "Governance", what: "Low-risk reply · passed by policy",              status: "done" },
+      { actor: "helix",  who: "Skills",     what: "Posted in thread · 41 s end to end",             status: "done" },
+      { actor: "output", who: "Audit log",  what: "+1 audit_log · immutable",                       status: "info" },
+    ],
+  },
+  {
+    key: "draft_proposal",
+    input: {
+      name: "HubSpot",
+      logo: { src: "https://cdn.simpleicons.org/hubspot/FF7A59", simpleicons: "hubspot", fallbackColor: "FF7A59" },
+    },
+    output: {
+      label: "Proposal in Notion",
+      name: "Notion",
+      logo: { gilbarbara: "notion-icon", simpleicons: "notion", fallbackColor: "111111" },
+    },
+    steps: [
+      { actor: "input",  who: "HubSpot",    what: "Deal moved to “Proposal” · Müller AG · €48k",  status: "done" },
+      { actor: "helix",  who: "Memory",     what: "Recalled · pilot terms + open questions",      status: "done" },
+      { actor: "helix",  who: "Knowledge",  what: "Pulled template · sales playbook p.8",         status: "done" },
+      { actor: "helix",  who: "Skills",     what: "Drafted proposal · scope + pricing",           status: "done" },
+      { actor: "guard",  who: "Governance", what: "Discount 12% > policy 10% · waiting",          status: "wait" },
+      { actor: "helix",  who: "Skills",     what: "Approved by sara.b → doc created",             status: "done" },
+      { actor: "output", who: "Audit log",  what: "+1 audit_log · immutable",                     status: "info" },
+    ],
+  },
 ];
 
 const ACTOR_META: Record<SkillStep["actor"], { label: string; color: string }> = {
@@ -101,26 +194,56 @@ const ACTOR_META: Record<SkillStep["actor"], { label: string; color: string }> =
   output: { label: "AUDIT",   color: "#2E7D55" },
 };
 
-export function SkillRunSignature() {
+function ScenarioLogo({ spec, name, size = 20 }: { spec: LogoSpec; name: string; size?: number }) {
+  return (
+    <span style={{ display: "inline-flex" }}>
+      <BrandLogo
+        name={name}
+        gilbarbara={spec.gilbarbara}
+        svgl={spec.svgl}
+        simpleicons={spec.simpleicons}
+        src={spec.src}
+        fallbackColor={spec.fallbackColor}
+        size={size}
+      />
+    </span>
+  );
+}
+
+export function SkillRunShowcase() {
+  const [scenario, setScenario] = useState(0);
   const [shown, setShown] = useState(1);
+  const sc = SCENARIOS[scenario];
+  const complete = shown >= sc.steps.length;
+
+  const go = (i: number) => {
+    setScenario(i);
+    setShown(1);
+  };
+
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) { setShown(SKILL_STEPS.length); return; }
+    const steps = SCENARIOS[scenario].steps;
+    if (reduced) { setShown(steps.length); return; }
     let cancelled = false;
     let t: number | null = null;
     const tick = (i: number) => {
       if (cancelled) return;
       setShown(i);
-      const gap = SKILL_STEPS[i - 1]?.status === "wait" ? 2200 : 900;
-      if (i < SKILL_STEPS.length) {
+      if (i < steps.length) {
+        const gap = steps[i - 1]?.status === "wait" ? 2200 : 900;
         t = window.setTimeout(() => tick(i + 1), gap);
       } else {
-        t = window.setTimeout(() => { if (!cancelled) { setShown(1); tick(2); } }, 3400);
+        t = window.setTimeout(() => {
+          if (cancelled) return;
+          setScenario((s) => (s + 1) % SCENARIOS.length);
+          setShown(1);
+        }, 3600);
       }
     };
     t = window.setTimeout(() => tick(2), 800);
     return () => { cancelled = true; if (t) clearTimeout(t); };
-  }, []);
+  }, [scenario]);
 
   return (
     <div className="m-skillrun">
@@ -128,35 +251,45 @@ export function SkillRunSignature() {
         <div className="m-skillrun__head-l">
           <span className="m-skillrun__spark" aria-hidden />
           <span className="m-skillrun__title">
-            Skill run <span style={{ color: "var(--m-muted-foreground)" }}>· book_invoices</span>
+            Skill run <span style={{ color: "var(--m-muted-foreground)" }}>· {sc.key}</span>
           </span>
         </div>
         <span className="m-skillrun__live"><span className="m-skillrun__livedot" /> live</span>
       </div>
 
+      <div className="m-skillrun__tabs" role="tablist" aria-label="Skill run scenarios">
+        {SCENARIOS.map((s, i) => (
+          <button
+            key={s.key}
+            role="tab"
+            aria-selected={i === scenario}
+            className={`m-mono-sm m-skillrun__tab${i === scenario ? " m-skillrun__tab--active" : ""}`}
+            onClick={() => go(i)}
+          >
+            {s.key}
+          </button>
+        ))}
+      </div>
+
       <div className="m-skillrun__flow">
         <div className="m-skillrun__side">
           <div className="m-skillrun__side-label">Input</div>
-          <div className="m-skillrun__chip" style={{ "--brand": "#EA4335" } as React.CSSProperties}>
-            <span style={{ display: "inline-flex" }}>
-              <BrandLogo
-                name="Gmail"
-                gilbarbara="google-gmail"
-                simpleicons="gmail"
-                fallbackColor="EA4335"
-                size={20}
-              />
-            </span>
-            Gmail
+          <div
+            key={sc.key}
+            className="m-skillrun__chip m-rise-in"
+            style={{ "--brand": `#${sc.input.logo.fallbackColor}` } as React.CSSProperties}
+          >
+            <ScenarioLogo spec={sc.input.logo} name={sc.input.name} />
+            {sc.input.name}
           </div>
         </div>
 
         <ol className="m-skillrun__steps">
-          {SKILL_STEPS.slice(0, shown).map((s, i) => {
+          {sc.steps.slice(0, shown).map((s, i) => {
             const meta = ACTOR_META[s.actor];
             return (
               <li
-                key={i}
+                key={`${sc.key}-${i}`}
                 className={`m-skillrun__step m-skillrun__step--${s.status} m-reveal-line`}
                 style={{ "--i": i, "--dot": meta.color } as React.CSSProperties}
               >
@@ -164,7 +297,9 @@ export function SkillRunSignature() {
                 <span className="m-skillrun__step-actor">{meta.label} · {s.who}</span>
                 <span className="m-skillrun__step-text">
                   {s.what}
-                  {s.status === "wait" && <span className="m-skillrun__step-pulse" aria-hidden />}
+                  {s.status === "wait" && i === shown - 1 && (
+                    <span className="m-skillrun__step-pulse" aria-hidden />
+                  )}
                 </span>
               </li>
             );
@@ -173,9 +308,20 @@ export function SkillRunSignature() {
 
         <div className="m-skillrun__side m-skillrun__side--out">
           <div className="m-skillrun__side-label">Output</div>
-          <div className="m-skillrun__chip m-skillrun__chip--out">
-            <span className="m-skillrun__chip-tick" aria-hidden>✓</span>
-            Booked in SAP
+          <div
+            key={sc.key}
+            className="m-skillrun__chip m-skillrun__chip--out m-rise-in"
+            style={{ opacity: complete ? 1 : 0.45, transition: "opacity 500ms ease" }}
+          >
+            <ScenarioLogo spec={sc.output.logo} name={sc.output.name} size={18} />
+            {sc.output.label}
+            <span
+              className="m-skillrun__chip-tick"
+              style={{ opacity: complete ? 1 : 0, transition: "opacity 400ms ease" }}
+              aria-hidden
+            >
+              ✓
+            </span>
           </div>
         </div>
       </div>
@@ -188,6 +334,9 @@ export function SkillRunSignature() {
     </div>
   );
 }
+
+/** @deprecated use SkillRunShowcase */
+export const SkillRunSignature = SkillRunShowcase;
 
 /* ===== AutonomySelector ===== */
 const AUTONOMY = [

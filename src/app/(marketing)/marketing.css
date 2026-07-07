@@ -565,6 +565,30 @@
   width: 6px; height: 6px; border-radius: 999px; background: var(--m-green);
   animation: m-soft-pulse 2s ease-in-out infinite;
 }
+.m-skillrun__tabs {
+  position: relative;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 12px 4px 0;
+}
+.m-skillrun__tab {
+  appearance: none;
+  font-size: 11px; letter-spacing: 0.03em; line-height: 1.4;
+  padding: 4px 11px; border-radius: 999px;
+  border: 1px solid var(--m-hairline);
+  background: transparent;
+  color: var(--m-muted-foreground);
+  cursor: pointer;
+  transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+.m-skillrun__tab:hover {
+  color: var(--m-foreground);
+  border-color: color-mix(in oklab, var(--m-ink) 25%, var(--m-hairline));
+}
+.m-skillrun__tab--active {
+  color: var(--m-ember);
+  border-color: color-mix(in oklab, var(--m-ember) 45%, var(--m-hairline));
+  background: color-mix(in oklab, var(--m-ember) 7%, #ffffff);
+}
 .m-skillrun__flow {
   position: relative;
   display: grid;
@@ -597,6 +621,10 @@
   position: relative;
   list-style: none; margin: 0; padding: 0 6px;
   display: flex; flex-direction: column; gap: 10px;
+  min-height: 372px; /* tallest scenario (7 steps) — keeps the card height steady across runs */
+}
+@media (max-width: 640px) {
+  .m-skillrun__steps { min-height: 0; }
 }
 .m-skillrun__steps::before {
   content: "";

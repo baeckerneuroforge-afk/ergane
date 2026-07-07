@@ -7,10 +7,8 @@ import {
   TintedImage,
   VideoPlaceholder,
 } from "@/components/marketing/subpage";
-import {
-  AnimatedTerminal,
-  ArchitectureDiagram,
-} from "@/components/marketing/subpage-client";
+import { ArchitectureDiagram } from "@/components/marketing/subpage-client";
+import { SkillRunShowcase } from "@/components/marketing/home-client";
 
 export const metadata: Metadata = {
   title: "Product",
@@ -109,20 +107,15 @@ export default function ProductPage() {
       <Section>
         <Eyebrow>End to end</Eyebrow>
         <h2 style={{ maxWidth: "24ch" }}>
-          A single skill run — read, prepare, gate, deliver, log.
+          Every run has the same signature — whatever the tools.
         </h2>
-        <div style={{ marginTop: 40, maxWidth: 720 }}>
-          <AnimatedTerminal
-            title="book_invoices"
-            lines={[
-              { t: "trigger · invoice-2384 · €1,240.00", k: "info" },
-              { t: "retrieved · policy p.14 · booking rules", k: "ok" },
-              { t: "prepared · debit acct 4400 · credit 1600", k: "ok" },
-              { t: "guardrail: amount > €1,000 — waiting for human", k: "wait" },
-              { t: "approved · lisa.c (CFO) · 14:08:41", k: "approved" },
-              { t: "written · ledger #48291 · immutable", k: "audit" },
-            ]}
-          />
+        <p style={{ marginTop: 16, maxWidth: "58ch", color: "var(--m-body)" }}>
+          An invoice in Gmail, a discovery call in Zoom, a question in Slack, a
+          deal in HubSpot — the operating system in between is always the same:
+          grounded in your knowledge, gated where it matters, logged forever.
+        </p>
+        <div style={{ marginTop: 40, maxWidth: 860 }}>
+          <SkillRunShowcase />
         </div>
         <div style={{ marginTop: 56 }}>
           <VideoPlaceholder

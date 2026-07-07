@@ -6,6 +6,7 @@ import {
   TintedImage,
 } from "@/components/marketing/subpage";
 import { IntegrationGrid, IntegrationConstellation } from "./integration-grid";
+import { SkillRunShowcase } from "@/components/marketing/home-client";
 
 export const metadata: Metadata = {
   title: "Integrations",
@@ -146,6 +147,20 @@ export default function IntegrationsPage() {
         <Eyebrow>Connectors</Eyebrow>
         <h2 style={{ maxWidth: "22ch" }}>Shipped. Shipping. Same audit.</h2>
         <IntegrationGrid />
+      </Section>
+
+      <Section border="top">
+        <Eyebrow>In action</Eyebrow>
+        <h2 style={{ maxWidth: "24ch" }}>
+          Different tools. Same operating system.
+        </h2>
+        <p style={{ marginTop: 16, maxWidth: "58ch", color: "var(--m-body)" }}>
+          Watch the same core run four different trains: mail to ERP, call to
+          deck, question to answer, deal to proposal.
+        </p>
+        <div style={{ marginTop: 40, maxWidth: 860 }}>
+          <SkillRunShowcase />
+        </div>
       </Section>
 
       <Section bg="surface" border="both">
