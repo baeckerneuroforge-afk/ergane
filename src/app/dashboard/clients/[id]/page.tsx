@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { requireTenant } from '@/lib/auth-context';
 import { getI18n } from '@/lib/i18n/server';
 import { withTenant } from '@/lib/tenant';
+import { isUuid } from '@/lib/uuid';
 import { RunStatusChip, formatDateTime } from '../../ui';
+import { CLIENT_DETAIL_ARTIFACTS_LIMIT, CLIENT_DETAIL_RUNS_LIMIT } from '../limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +19,7 @@ export default async function ClientDetailPage({
   const cl = t.clients;
   const d = t.deliverables;
   const { id } = await params;
+  if (!isUuid(id)) notFound();
 
   const data = await withTenant(orgId, async (tx) => {
     const client = await tx.client.findUnique({
@@ -35,12 +38,13 @@ export default async function ClientDetailPage({
         where: { clientId: id },
         select: { id: true, skillKey: true, status: true, createdAt: true, mode: true },
         orderBy: { createdAt: 'desc' },
-        take: 20,
+        take: CLIENT_DETAIL_RUNS_LIMIT,
       }),
       tx.artifact.findMany({
         where: { clientId: id },
         select: { id: true, title: true, type: true, version: true, sizeBytes: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
+        take: CLIENT_DETAIL_ARTIFACTS_LIMIT,
       }),
     ]);
 

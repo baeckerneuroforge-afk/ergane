@@ -24,12 +24,15 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { withTenant } from '../src/lib/tenant';
+import { createClient } from '../src/lib/clients';
 import { answerQuestion, ingestDocument } from '../src/lib/rag';
 import { approve, reject, startRun } from '../src/lib/skills';
 
 const DEMO_ORG = '99999999-9999-4999-8999-999999999999';
 const DEMO_CLERK_ORG = 'demo_org_nordwind';
 const DEMO_ORG_NAME = 'Nordwind GmbH';
+/** Demo customer for client-tracker surfaces after seed. */
+const DEMO_CLIENT_NAME = 'Hanse Logistik GmbH';
 
 const ADMIN = 'demo-admin';
 const LEAD = 'demo-lead';
@@ -189,14 +192,18 @@ async function wipeDemoOrg() {
     const where = { orgId: DEMO_ORG };
     await tx.chunk.deleteMany({ where });
     await tx.chatMessage.deleteMany({ where });
+    await tx.chatFeedback.deleteMany({ where }).catch(() => {});
     await tx.skillStep.deleteMany({ where });
     await tx.approval.deleteMany({ where });
     await tx.skillRun.deleteMany({ where });
+    await tx.artifact.deleteMany({ where }).catch(() => {});
+    await tx.client.deleteMany({ where }).catch(() => {});
     await tx.approvalPolicy.deleteMany({ where });
     await tx.visibilityGrant.deleteMany({ where });
     await tx.auditLog.deleteMany({ where });
     await tx.knowledgeItem.deleteMany({ where });
     await tx.document.deleteMany({ where });
+    await tx.orgSettings.deleteMany({ where }).catch(() => {});
     await tx.membership.deleteMany({ where });
     await tx.organization.deleteMany({ where: { id: DEMO_ORG } });
     await tx.$executeRawUnsafe(`SET session_replication_role = DEFAULT`);
@@ -319,24 +326,43 @@ async function main() {
 
   console.log(`— Runs: ${r1.status}, ${r2.status}, ${r3Done.status} (nach approve), ${r4.status} (1.240 €), ${r5Done.status} (nach reject)`);
 
+  // Client hub demo: one named customer + clientId on subsequent runs.
+  const demoClient = await createClient({
+    orgId: DEMO_ORG,
+    actorUserId: ADMIN,
+    name: DEMO_CLIENT_NAME,
+    notes: 'Demo customer — discovery + offer path for YC walkthrough.',
+  });
+  console.log(`— Client "${demoClient.name}" (${demoClient.id}) angelegt.`);
+
   // Katalog-Skills (je ein Beispiel-Run pro neuem Skill, über die Engine):
   // read-only läuft direkt durch; Angebot pausiert wegen externer Wirkung;
   // Rechnung einmal freigegeben, einmal wartend. `rolle` ist die Rolle des
   // Auslösers (Disclosure-Filter des Wissens-Retrievals in den Steps).
-  const r6 = await startRun(DEMO_ORG, 'wissen_zusammenfassen', {
-    frage: 'Wie viele Urlaubstage haben Mitarbeitende pro Kalenderjahr?',
-    rolle: 'member',
-  });
+  const r6 = await startRun(
+    DEMO_ORG,
+    'wissen_zusammenfassen',
+    {
+      frage: 'Wie viele Urlaubstage haben Mitarbeitende pro Kalenderjahr?',
+      rolle: 'member',
+    },
+    { clientId: demoClient.id },
+  );
   if (r6.status !== 'completed') {
     throw new Error(`seed-demo: wissen_zusammenfassen erwartet completed, erhalten ${r6.status}`);
   }
 
-  const r7 = await startRun(DEMO_ORG, 'angebot_erstellen', {
-    kunde: 'Hanse Logistik GmbH',
-    leistung: 'Projektunterstützung Rahmenvertrag Q3',
-    betragEur: 4800,
-    rolle: 'lead',
-  });
+  const r7 = await startRun(
+    DEMO_ORG,
+    'angebot_erstellen',
+    {
+      kunde: DEMO_CLIENT_NAME,
+      leistung: 'Projektunterstützung Rahmenvertrag Q3',
+      betragEur: 4800,
+      rolle: 'lead',
+    },
+    { clientId: demoClient.id },
+  );
   if (r7.status !== 'awaiting_approval') {
     throw new Error(`seed-demo: angebot_erstellen erwartet awaiting_approval, erhalten ${r7.status}`);
   }
@@ -361,18 +387,38 @@ async function main() {
   });
 
   console.log(
-    `— Katalog-Runs: wissen_zusammenfassen ${r6.status}, angebot_erstellen ${r7.status} (externe Wirkung), ` +
+    `— Katalog-Runs: wissen_zusammenfassen ${r6.status} (client-linked), angebot_erstellen ${r7.status} (externe Wirkung, client-linked), ` +
       `rechnung_erstellen ${r8Done.status} (nach approve) + ${r9.status} (2.400 €)`,
   );
 
-  const { runs, approvals, audits } = await withTenant(DEMO_ORG, async (tx) => ({
+  const { runs, approvals, audits, linkedRuns } = await withTenant(DEMO_ORG, async (tx) => ({
     runs: await tx.skillRun.count(),
     approvals: await tx.approval.count(),
     audits: await tx.auditLog.count(),
+    linkedRuns: await tx.skillRun.count({ where: { clientId: demoClient.id } }),
   }));
   console.log(
     `\n✅  Demo-Seed fertig: ${DOCUMENTS.length} Dokumente + ${TRANSCRIPTS.length} Transkripte, ` +
-      `${QUESTIONS.length} Chat-Fragen, ${runs} Runs, ${approvals} Approvals, ${audits} Audit-Einträge.`,
+      `${QUESTIONS.length} Chat-Fragen, ${runs} Runs (${linkedRuns} mit Client "${DEMO_CLIENT_NAME}"), ` +
+      `${approvals} Approvals, ${audits} Audit-Einträge.`,
+  );
+  const pendingApprovals = await withTenant(DEMO_ORG, (tx) =>
+    tx.approval.count({ where: { status: 'pending' } }),
+  );
+  if (pendingApprovals < 1) {
+    throw new Error('seed-demo: expected at least one pending approval for the demo approve moment');
+  }
+  console.log(`— Pending approvals for live demo: ${pendingApprovals} (open /dashboard/approvals)`);
+
+  console.log(
+    `\nDemo tips:\n` +
+      `  • Clerk org: set slug "demo" or "nordwind", or DEMO_ORG_SLUGS / clerk id "${DEMO_CLERK_ORG}"\n` +
+      `  • Seed tenant UUID is FIXED (${DEMO_ORG}); UI org UUID = clerkOrgIdToUuid(your Clerk org id)\n` +
+      `    → to share data with a live Clerk session, set DEMO_CLERK_ORG + DEMO_ORG accordingly (see docs/yc-demo-runbook.md)\n` +
+      `  • Client hub: /dashboard/clients (Hanse Logistik)\n` +
+      `  • Pending approve moment: ${pendingApprovals} approval(s) — angebot for ${DEMO_CLIENT_NAME}\n` +
+      `  • Isolation demo: /demo/isolation (demo org only)\n` +
+      `  • Full script: docs/yc-demo-runbook.md\n`,
   );
 }
 

@@ -61,20 +61,28 @@ export interface DemoOrgContext {
   orgSlug: string | null;
 }
 
-const BUILTIN_DEMO_KEYS = [DEMO_ORG_A.clerkOrgId, DEMO_ORG_B.clerkOrgId];
+/** Nordwind seed org (scripts/seed-demo.ts) — same allowlist as isolation demos. */
+export const NORDWIND_DEMO_CLERK_ORG_ID = 'demo_org_nordwind';
+
+const BUILTIN_DEMO_KEYS = [
+  DEMO_ORG_A.clerkOrgId,
+  DEMO_ORG_B.clerkOrgId,
+  NORDWIND_DEMO_CLERK_ORG_ID,
+];
 
 /**
- * Build the demo-org allowlist: the default demo slug + the two built-in demo
- * Clerk ids, plus anything in DEMO_ORG_SLUGS (comma/space separated). Lets a
- * founder flag their real Clerk demo org (e.g. slug "demo") without a code
- * change, while a genuine customer org never matches.
+ * Build the demo-org allowlist: the default demo slug + built-in demo
+ * Clerk ids (isolation A/B + Nordwind seed), plus anything in DEMO_ORG_SLUGS
+ * (comma/space separated). Lets a founder flag their real Clerk demo org
+ * (e.g. slug "demo") without a code change, while a genuine customer org
+ * never matches.
  */
 export function demoAllowlist(env: string | undefined = process.env.DEMO_ORG_SLUGS): Set<string> {
   const extra = (env ?? '')
     .split(/[\s,]+/)
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return new Set(['demo', ...BUILTIN_DEMO_KEYS, ...extra]);
+  return new Set(['demo', 'nordwind', ...BUILTIN_DEMO_KEYS, ...extra]);
 }
 
 /**

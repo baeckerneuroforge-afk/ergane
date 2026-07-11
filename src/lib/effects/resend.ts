@@ -1,6 +1,8 @@
 // Real email adapter: Resend (https://resend.com) via plain fetch.
 // Selected by the factory when RESEND_API_KEY is set; EFFECTS_EMAIL_FROM is
 // the verified sender address. Attachment bytes go base64-encoded, per API.
+// Outbound calls use fetchWithTimeout so a hung Resend API cannot pin the fn.
+import { fetchWithTimeout } from '../http-timeout';
 import type { EmailProvider, EmailResult, OutgoingEmail } from './types';
 
 export class ResendEmailProvider implements EmailProvider {
@@ -16,7 +18,7 @@ export class ResendEmailProvider implements EmailProvider {
   }
 
   async send(email: OutgoingEmail): Promise<EmailResult> {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await fetchWithTimeout('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.apiKey}`,

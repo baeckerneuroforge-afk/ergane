@@ -1,4 +1,5 @@
 import type { ApprovalPolicy } from '@prisma/client';
+import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
 import { listClientsInTx } from '@/lib/clients';
 import type { Dictionary, Locale } from '@/lib/i18n';
@@ -196,7 +197,12 @@ export default async function SkillsPage() {
                       ))}
                     </select>
                   </>
-                ) : null}
+                ) : (
+                  <p className="muted" style={{ margin: '0.25rem 0 0.7rem', fontSize: '0.85rem' }}>
+                    {f.clientEmptyHint}{' '}
+                    <Link href="/dashboard/settings?tab=clients">{f.clientEmptyLink}</Link>.
+                  </p>
+                )}
                 <label
                   style={{
                     display: 'flex',

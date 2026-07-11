@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { approve, reject } from '@/lib/skills';
+import { requireUuid } from '@/lib/uuid';
 
 /**
  * Decide a pending approval via the EXISTING engine functions. approve()/
@@ -11,8 +12,8 @@ import { approve, reject } from '@/lib/skills';
  * caller's membership (four-eyes) and write the human audit entry — the UI
  * adds nothing on top.
  */
-async function decide(runId: string, decision: 'approve' | 'reject') {
-  if (!runId.trim()) throw new Error('runId is required.');
+async function decide(runIdRaw: string, decision: 'approve' | 'reject') {
+  const runId = requireUuid(runIdRaw, 'runId');
 
   const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
   // Mirror the membership first — the engine's role gate reads it.

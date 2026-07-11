@@ -22,6 +22,7 @@ import { frameworkCriteria } from '@/lib/loop/criteria/framework';
 import {
   addClient,
   editClient,
+  removeClient,
   applyGovernancePreset,
   eraseOrganization,
   importGovernanceConfig,
@@ -427,7 +428,7 @@ export default async function SettingsPage({
                       style={{ width: '18rem' }}
                     />
                   </td>
-                  <td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
                     <form id={`edit-client-${c.id}`} action={editClient}>
                       <input type="hidden" name="clientId" value={c.id} />
                     </form>
@@ -437,7 +438,13 @@ export default async function SettingsPage({
                       form={`edit-client-${c.id}`}
                     >
                       {s.saveClient}
-                    </button>
+                    </button>{' '}
+                    <form action={removeClient} style={{ display: 'inline' }}>
+                      <input type="hidden" name="clientId" value={c.id} />
+                      <button type="submit" className="btn btn--ghost select--inline">
+                        {s.deleteClient}
+                      </button>
+                    </form>
                   </td>
                 </tr>
               ))}

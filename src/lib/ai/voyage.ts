@@ -2,7 +2,9 @@
 //
 // Anthropic does not offer an embeddings endpoint; Voyage is Anthropic's
 // recommended embeddings partner. Plain fetch — the API is a single POST and
-// pulling in an SDK for it buys nothing.
+// pulling in an SDK for it buys nothing. Outbound calls use fetchWithTimeout
+// so a hung embeddings API cannot pin the function until the platform kills it.
+import { fetchWithTimeout } from '../http-timeout';
 import {
   EMBEDDING_DIMENSIONS,
   type EmbeddingInputType,
@@ -37,7 +39,7 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
   async embed(texts: string[], inputType: EmbeddingInputType): Promise<number[][]> {
     if (texts.length === 0) return [];
 
-    const res = await fetch(VOYAGE_URL, {
+    const res = await fetchWithTimeout(VOYAGE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -5,6 +5,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { enforceChatRetention } from '@/lib/lifecycle';
 import { answerQuestion, loadChatHistory, submitChatFeedback } from '@/lib/rag';
 import { deferWork } from '@/lib/slack/defer';
+import { requireUuid } from '@/lib/uuid';
 
 /**
  * Ask the knowledge base a question (RAG).
@@ -41,9 +42,8 @@ export async function askQuestion(formData: FormData) {
  * conversation (enforced fail-closed in submitChatFeedback).
  */
 export async function rateAnswer(formData: FormData) {
-  const messageId = String(formData.get('messageId') ?? '').trim();
+  const messageId = requireUuid(formData.get('messageId'), 'messageId');
   const rawVerdict = String(formData.get('verdict') ?? '');
-  if (!messageId) throw new Error('messageId is required.');
   if (rawVerdict !== 'up' && rawVerdict !== 'down') throw new Error('Invalid rating.');
 
   const { orgId, userId } = await requireTenant();

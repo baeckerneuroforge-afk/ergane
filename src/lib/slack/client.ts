@@ -14,6 +14,7 @@
 // Secrets: tokens are resolved at SEND time only; the DB holds refs or
 // ciphertext (slack_installations.bot_token_ref), never a plaintext token.
 import { decryptString } from '../crypto';
+import { fetchWithTimeout } from '../http-timeout';
 
 export interface SlackOutgoingMessage {
   channel: string;
@@ -56,7 +57,7 @@ async function postViaSlackApi(message: SlackOutgoingMessage): Promise<void> {
   const method = ephemeralUserId ? 'chat.postEphemeral' : 'chat.postMessage';
   const body = ephemeralUserId ? { ...payload, user: ephemeralUserId } : payload;
 
-  const res = await fetch(`https://slack.com/api/${method}`, {
+  const res = await fetchWithTimeout(`https://slack.com/api/${method}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,

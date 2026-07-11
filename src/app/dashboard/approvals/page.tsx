@@ -5,6 +5,7 @@ import { roleSatisfies } from '@/lib/policies';
 import { withTenant } from '@/lib/tenant';
 import { ApprovalStatusChip, amountOfInput, formatDateTime, formatEuro } from '../ui';
 import { ApprovalActions } from './approval-actions';
+import { APPROVALS_DECIDED_LIMIT, APPROVALS_PENDING_LIMIT } from './limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,12 +19,13 @@ export default async function ApprovalsPage() {
       where: { status: 'pending' },
       include: { run: true },
       orderBy: { createdAt: 'asc' },
+      take: APPROVALS_PENDING_LIMIT,
     }),
     decided: await tx.approval.findMany({
       where: { status: { not: 'pending' } },
       include: { run: true },
       orderBy: { decidedAt: 'desc' },
-      take: 20,
+      take: APPROVALS_DECIDED_LIMIT,
     }),
   }));
 
@@ -69,7 +71,15 @@ export default async function ApprovalsPage() {
                   <span className="chip">{a.roleChip(approval.requiredRole)}</span>
                 ) : null}
               </div>
-              <div>{a.reason} {approval.reason}</div>
+              <div>
+                {a.reason} {approval.reason}
+                {approval.stepName ? (
+                  <div className="row-meta mono">
+                    step: {approval.stepName}
+                    {approval.stepIdx != null ? ` (#${approval.stepIdx})` : ''}
+                  </div>
+                ) : null}
+              </div>
               <ApprovalActions
                 runId={approval.runId}
                 canDecide={canDecide}

@@ -9,6 +9,7 @@ import { ExtractionError, MAX_FILE_BYTES, extractText } from '@/lib/ingest/extra
 import { deleteDocument } from '@/lib/lifecycle';
 import { ingestDocument } from '@/lib/rag';
 import { logError } from '@/lib/log';
+import { isUuid, requireUuid } from '@/lib/uuid';
 
 const MAX_UPLOAD_BYTES = 1_000_000; // 1 MB of plain text is plenty for now.
 
@@ -138,6 +139,10 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
   if (!documentId || !(file instanceof File) || file.size === 0) {
     return { fileName: 'unknown', ok: false, error: 'Document id and file are required.' };
   }
+  // Same authority surface as delete/visibility: reject junk ids before work.
+  if (!isUuid(documentId)) {
+    return { fileName: file instanceof File ? file.name : 'unknown', ok: false, error: 'Invalid document id.' };
+  }
 
   try {
     if (file.size > MAX_FILE_BYTES) {
@@ -150,7 +155,11 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
     });
     const title = String(formData.get('title') ?? '').trim() || file.name.replace(/\.[^.]+$/, '');
 
-    const { orgId, userId } = await requireTenant();
+    // Mirror membership first so ingestDocument's admin gate reads a live role.
+    const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
+    await ensureOrgAndMembership({ clerkOrgId, name: orgSlug ?? clerkOrgId, userId, role });
+    // Admin-only (same as delete/visibility) — enforced inside ingestDocument
+    // on the replaceDocumentId path before any embedding spend.
     const { chunkCount } = await ingestDocument({
       orgId,
       actorId: userId,
@@ -167,7 +176,9 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
     const message =
       err instanceof ExtractionError
         ? err.message
-        : 'New version failed — please try again.';
+        : err instanceof Error && /admin required/i.test(err.message)
+          ? 'Admin required to re-ingest documents.'
+          : 'New version failed — please try again.';
     if (!(err instanceof ExtractionError)) logError('reingestUpload failed', err);
     return { fileName: file.name, ok: false, error: message };
   }
@@ -178,8 +189,7 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
  * function; this action parses the form and resolves the tenant/membership.
  */
 export async function removeDocument(formData: FormData) {
-  const documentId = String(formData.get('documentId') ?? '').trim();
-  if (!documentId) throw new Error('documentId is required.');
+  const documentId = requireUuid(formData.get('documentId'), 'documentId');
 
   const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
   // Mirror the membership first — deleteDocument's admin gate reads it.
@@ -194,8 +204,7 @@ export async function removeDocument(formData: FormData) {
  * the admin gate (getMemberRole + requireAdmin) and writes the audit entry.
  */
 export async function changeVisibility(formData: FormData) {
-  const documentId = String(formData.get('documentId') ?? '').trim();
-  if (!documentId) throw new Error('documentId is required.');
+  const documentId = requireUuid(formData.get('documentId'), 'documentId');
 
   const rawVisibility = String(formData.get('visibility') ?? '');
   const visibility = VISIBILITIES.find((v) => v === rawVisibility);

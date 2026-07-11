@@ -1,10 +1,13 @@
 import Link from 'next/link';
 import { requireTenant } from '@/lib/auth-context';
+import { isDemoOrg } from '@/lib/demo/isolation';
 import { getI18n } from '@/lib/i18n/server';
 import { toFlagView } from '@/lib/loop/flags-view';
+import { computeLoopKpis, formatApprovalLatencyMs } from '@/lib/loop/kpis';
 import { formatMoney } from '@/lib/money';
 import { withTenant } from '@/lib/tenant';
 import { computeValueStats } from '@/lib/value';
+import { DemoGuidanceCard } from './demo-guidance';
 import { CategoryChip, DeviationSummary, SeverityChip } from './flags/flag-cells';
 import { OnboardingCard } from './onboarding';
 import { ActorChip, RunStatusChip, formatDateTime } from './ui';
@@ -30,15 +33,19 @@ function Icon({ d }: { d: string }) {
 }
 
 export default async function CockpitPage() {
-  const { orgId } = await requireTenant();
+  const { orgId, clerkOrgId, orgSlug } = await requireTenant();
   const { locale, t } = await getI18n();
   const c = t.cockpit;
   const o = t.overview;
+  const showDemoGuidance = isDemoOrg({ clerkOrgId, orgSlug });
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const data = await withTenant(orgId, async (tx) => {
+    // Loop KPIs are sequential (pinned tx); other reads can still batch after.
+    const loopKpis = await computeLoopKpis(tx, orgId, { since: sevenDaysAgo });
+
     const [
       pendingApprovals,
       pendingApprovalsList,
@@ -110,6 +117,7 @@ export default async function CockpitPage() {
       flagCount7d,
       lastFlag,
       onboarding,
+      loopKpis,
     };
   });
 
@@ -148,6 +156,9 @@ export default async function CockpitPage() {
 
   return (
     <>
+      {showDemoGuidance ? (
+        <DemoGuidanceCard dict={t.demoGuidance} includeIsolation />
+      ) : null}
       <OnboardingCard progress={data.onboarding} dict={t.onboarding} />
 
       {data.pendingApprovals > 0 ? (
@@ -255,23 +266,51 @@ export default async function CockpitPage() {
         )}
       </section>
 
-      {/* --- Loop & Flags --- */}
+      {/* --- Loop KPIs + latest flag --- */}
       <section className="card">
         <div className="card-title">
-          <h2>{c.flagsTitle}</h2>
-          {data.flagCount7d > 0 ? (
-            <Link className="row-meta" href="/dashboard/flags">
-              {c.flagsAll}
-            </Link>
-          ) : null}
+          <h2>{c.loopKpisTitle}</h2>
+          <Link className="row-meta" href="/dashboard/flags">
+            {c.flagsAll}
+          </Link>
+        </div>
+        <div
+          className="kpi-grid"
+          style={{ margin: '0 0 0.8rem', gridTemplateColumns: 'repeat(auto-fit, minmax(7.5rem, 1fr))' }}
+        >
+          <div>
+            <div className="kpi-label">{c.loopKpiFlags}</div>
+            <div className="kpi-value" style={{ fontSize: '1.35rem' }}>
+              {data.loopKpis.flags}
+            </div>
+          </div>
+          <div>
+            <div className="kpi-label">{c.loopKpiCorrections}</div>
+            <div className="kpi-value" style={{ fontSize: '1.35rem' }}>
+              {data.loopKpis.corrections}
+            </div>
+          </div>
+          <div>
+            <div className="kpi-label">{c.loopKpiLatency}</div>
+            <div className="kpi-value" style={{ fontSize: '1.35rem' }}>
+              {formatApprovalLatencyMs(data.loopKpis.approvalLatencyMedianMs, locale)}
+            </div>
+          </div>
+          <div>
+            <div className="kpi-label">{c.loopKpiProcess}</div>
+            <div className="kpi-value" style={{ fontSize: '1.35rem' }}>
+              {c.loopKpiProcessOf(
+                data.loopKpis.processMetricsHealthy,
+                data.loopKpis.processMetricsTotal,
+              )}
+            </div>
+          </div>
         </div>
         {lastFlagView ? (
           <>
-            <p className="row-meta" style={{ margin: '0 0 0.7rem' }}>
-              <strong>{c.flagsCount(data.flagCount7d)}</strong> {c.flagsWindow}
-            </p>
             <div className="row-meta" style={{ marginBottom: '0.35rem' }}>
-              {c.flagsLast} · {formatDateTime(lastFlagView.createdAt, locale)}
+              {c.flagsLast} · {formatDateTime(lastFlagView.createdAt, locale)} ·{' '}
+              <strong>{c.flagsCount(data.flagCount7d)}</strong> {c.flagsWindow}
             </div>
             <div className="flag-line">
               <SeverityChip view={lastFlagView} locale={locale} />
@@ -280,7 +319,9 @@ export default async function CockpitPage() {
             </div>
           </>
         ) : (
-          <p className="muted">{c.noFlags}</p>
+          <p className="muted" style={{ margin: 0 }}>
+            {c.noFlags}
+          </p>
         )}
       </section>
 

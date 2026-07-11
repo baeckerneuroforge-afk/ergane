@@ -126,9 +126,71 @@ export async function getClient(orgId: string, clientId: string): Promise<Client
   );
 }
 
+export interface DeleteClientInput {
+  orgId: string;
+  actorUserId: string;
+  clientId: string;
+}
+
+/**
+ * Admin-only client erase (PII in notes). skill_runs / artifacts that referenced
+ * this client get client_id SET NULL (schema FK). Tenant-scoped via RLS.
+ */
+export async function deleteClient(input: DeleteClientInput): Promise<{ id: string; name: string }> {
+  return withTenant(input.orgId, async (tx) => {
+    const role = await getMemberRole(tx, input.actorUserId);
+    requireAdminRole(role, input.actorUserId);
+
+    const existing = await tx.client.findUnique({ where: { id: input.clientId } });
+    if (!existing) {
+      throw new Error('Client not found.');
+    }
+
+    await tx.client.delete({ where: { id: input.clientId } });
+    await logAudit(tx, {
+      orgId: input.orgId,
+      actorId: input.actorUserId,
+      actorType: 'human',
+      action: 'client.deleted',
+      target: `client:${existing.id}`,
+      // Do not echo notes (PII) into the audit trail on erase.
+      detail: { name: existing.name },
+    });
+
+    return { id: existing.id, name: existing.name };
+  });
+}
+
 export async function listClientsInTx(tx: Tx): Promise<Pick<Client, 'id' | 'name'>[]> {
   return tx.client.findMany({
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
+  });
+}
+
+/** Hub-style summary for one client: linked runs + counts (tenant-scoped). */
+export async function getClientActivity(
+  orgId: string,
+  clientId: string,
+): Promise<{
+  client: Client;
+  runCount: number;
+  artifactCount: number;
+  recentRuns: Array<{ id: string; skillKey: string; status: string; createdAt: Date }>;
+} | null> {
+  return withTenant(orgId, async (tx) => {
+    const client = await tx.client.findUnique({ where: { id: clientId } });
+    if (!client) return null;
+    const [runCount, artifactCount, recentRuns] = await Promise.all([
+      tx.skillRun.count({ where: { clientId } }),
+      tx.artifact.count({ where: { clientId } }),
+      tx.skillRun.findMany({
+        where: { clientId },
+        select: { id: true, skillKey: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+    ]);
+    return { client, runCount, artifactCount, recentRuns };
   });
 }

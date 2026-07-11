@@ -5,6 +5,7 @@
 // is one new adapter (e.g. on top of @anthropic-ai/bedrock-sdk) with the same
 // ChatProvider interface, selected in ./index.ts.
 import Anthropic from '@anthropic-ai/sdk';
+import { OUTBOUND_LLM_TIMEOUT_MS } from '../http-timeout';
 import type { ChatCompletionRequest, ChatProvider } from './types';
 
 const DEFAULT_MODEL = 'claude-opus-4-8';
@@ -16,7 +17,9 @@ export class AnthropicChatProvider implements ChatProvider {
 
   constructor(apiKey: string, model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL) {
     if (!apiKey) throw new Error('AnthropicChatProvider: ANTHROPIC_API_KEY is required.');
-    this.client = new Anthropic({ apiKey });
+    // Finite client timeout (SDK default is 10 minutes). Prevents a hung
+    // Messages call from running until the platform kills the function.
+    this.client = new Anthropic({ apiKey, timeout: OUTBOUND_LLM_TIMEOUT_MS });
     this.model = model;
   }
 

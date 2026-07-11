@@ -3,7 +3,7 @@
 // Platzhalter MÜSSEN vor Abschluss echter AV-Verträge befüllt und der Text
 // juristisch geprüft werden.
 import type { Metadata } from 'next';
-import { LegalPlaceholder as P, PublicShell } from '../public-shell';
+import { PublicShell } from '../public-shell';
 
 export const metadata: Metadata = { title: 'Auftragsverarbeitungsvertrag — helix.ai' };
 
@@ -23,8 +23,10 @@ export default function AvvPage() {
         <h1>Auftragsverarbeitungsvertrag (AVV)</h1>
         <p className="muted">
           Vertrag über die Verarbeitung personenbezogener Daten im Auftrag gemäß
-          Art. 28 DSGVO — zwischen dem Kunden (Verantwortlicher) und{' '}
-          <P>Firmenname des Anbieters</P> (Auftragsverarbeiter).
+          Art. 28 DSGVO — zwischen dem Kunden (Verantwortlicher) und dem
+          Pilot-Betreiber (Hephaistos Systems / helix.ai, Auftragsverarbeiter).
+          Vollständige Firmendaten werden vor dem öffentlichen Produktivbetrieb
+          ergänzt.
         </p>
 
         <h2>§ 1 Gegenstand und Dauer</h2>
@@ -99,13 +101,13 @@ export default function AvvPage() {
 
         <h2>§ 7 Schlussbestimmungen</h2>
         <p>
-          <P>Haftung, Gerichtsstand, salvatorische Klausel — juristisch ausarbeiten</P>
+          Haftung, Gerichtsstand und salvatorische Klausel werden im unterzeichneten
+          Pilot-AVV finalisiert. Bis dahin ist diese Seite informativ für
+          Pilot-Gespräche — Kontakt:{' '}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a>.
         </p>
 
-        <p className="muted">
-          Stand: <P>Datum</P> · Unterzeichnung: <P>Prozess für die Gegenzeichnung festlegen
-          (z. B. PDF-Download mit Signaturfeldern)</P>
-        </p>
+        <p className="muted">Stand: Pilotphase · kein unterzeichneter Vertrag allein durch diese Seite.</p>
       </article>
     </PublicShell>
   );

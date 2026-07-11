@@ -53,18 +53,26 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const r = t.runDetail;
   const sim = r.simulation;
 
-  const { run, steps, approvals, autoStartedEntry } = await withTenant(orgId, async (tx) => ({
+  const { run, steps, approvals, autoStartedEntry, client } = await withTenant(orgId, async (tx) => {
     // RLS scopes to the tenant — a foreign run id is simply "not found".
-    run: await tx.skillRun.findUnique({ where: { id } }),
-    steps: await tx.skillStep.findMany({ where: { runId: id }, orderBy: { idx: 'asc' } }),
-    approvals: await tx.approval.findMany({ where: { runId: id }, orderBy: { createdAt: 'asc' } }),
+    const run = await tx.skillRun.findUnique({ where: { id } });
+    const steps = await tx.skillStep.findMany({ where: { runId: id }, orderBy: { idx: 'asc' } });
+    const approvals = await tx.approval.findMany({ where: { runId: id }, orderBy: { createdAt: 'asc' } });
     // Schritt E: was THIS run auto-started by the loop? Its start writes a
     // loop.auto_correction_started audit entry whose target ends with `:<runId>`.
-    autoStartedEntry: await tx.auditLog.findFirst({
+    const autoStartedEntry = await tx.auditLog.findFirst({
       where: { action: 'loop.auto_correction_started', target: { endsWith: `:${id}` } },
       select: { id: true },
-    }),
-  }));
+    });
+    const client =
+      run?.clientId != null
+        ? await tx.client.findUnique({
+            where: { id: run.clientId },
+            select: { id: true, name: true },
+          })
+        : null;
+    return { run, steps, approvals, autoStartedEntry, client };
+  });
   if (!run) notFound();
   const wasAutoStarted = autoStartedEntry !== null;
 
@@ -102,6 +110,13 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             <>
               {' '}
               · <span className="mono">{formatEuro(amount, locale)}</span>
+            </>
+          ) : null}
+          {client ? (
+            <>
+              {' '}
+              · {r.client}:{' '}
+              <Link href={`/dashboard/clients/${client.id}`}>{client.name}</Link>
             </>
           ) : null}
         </div>

@@ -4,6 +4,7 @@ import { getI18n } from '@/lib/i18n/server';
 import { withTenant } from '@/lib/tenant';
 import { VisibilityBadge, formatDateTime } from '../ui';
 import { addDocument, changeVisibility, reingestUpload, removeDocument } from './actions';
+import { KNOWLEDGE_PAGE_LIMIT } from './limits';
 import { UploadDropzone } from './upload';
 
 export const dynamic = 'force-dynamic';
@@ -15,9 +16,11 @@ export default async function KnowledgePage() {
   const isAdmin = role === 'admin' || role === 'owner';
 
   // Every tenant read goes through withTenant — RLS scopes this to `orgId`.
+  // Bounded take: a large tenant must not unbounded-load every document.
   const documents = await withTenant(orgId, (tx) =>
     tx.document.findMany({
       orderBy: { createdAt: 'desc' },
+      take: KNOWLEDGE_PAGE_LIMIT,
       include: { _count: { select: { chunks: true } } },
     }),
   );

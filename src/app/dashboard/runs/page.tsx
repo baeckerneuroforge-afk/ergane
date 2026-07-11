@@ -3,6 +3,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { getI18n } from '@/lib/i18n/server';
 import { withTenant } from '@/lib/tenant';
 import { RunStatusChip, SimulationBadge, amountOfInput, formatDateTime, formatEuro } from '../ui';
+import { RUNS_PAGE_LIMIT } from './limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +15,18 @@ export default async function RunsPage() {
   // pull 100 of them over the wire for a table of four columns.
   const runs = await withTenant(orgId, (tx) =>
     tx.skillRun.findMany({
-      select: { id: true, skillKey: true, status: true, mode: true, input: true, createdAt: true },
+      select: {
+        id: true,
+        skillKey: true,
+        status: true,
+        mode: true,
+        input: true,
+        createdAt: true,
+        clientId: true,
+        client: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: RUNS_PAGE_LIMIT,
     }),
   );
 
@@ -39,6 +49,7 @@ export default async function RunsPage() {
             <thead>
               <tr>
                 <th>{t.common.skill}</th>
+                <th>{t.runs.colClient}</th>
                 <th>{t.common.amount}</th>
                 <th>{t.common.status}</th>
                 <th>{t.runs.startedAt}</th>
@@ -54,6 +65,13 @@ export default async function RunsPage() {
                         <span className="mono">{run.skillKey}</span>
                       </Link>
                       <div className="row-meta mono">{run.id.slice(0, 8)}…</div>
+                    </td>
+                    <td>
+                      {run.client ? (
+                        <Link href={`/dashboard/clients/${run.client.id}`}>{run.client.name}</Link>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                     <td className="mono">{amount !== null ? formatEuro(amount, locale) : '—'}</td>
                     <td>

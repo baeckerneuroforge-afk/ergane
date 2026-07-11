@@ -1,6 +1,9 @@
+import { isUsingFakeAiProviders } from '@/lib/ai';
 import { requireTenant } from '@/lib/auth-context';
+import { getI18n } from '@/lib/i18n/server';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { withTenant } from '@/lib/tenant';
+import { FakeAiBanner } from './fake-ai-banner';
 import { DashboardShell } from './shell';
 
 // Session + live badge count → always dynamic.
@@ -8,6 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { userId, clerkOrgId, orgId, orgSlug, role } = await requireTenant();
+  const { t } = await getI18n();
 
   // Mirror the Clerk org + caller's membership into our DB (idempotent) —
   // approve()/reject()'s role gate reads this membership.
@@ -30,6 +34,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     }),
   }));
 
+  const showFakeAi = isUsingFakeAiProviders();
+
   return (
     <DashboardShell
       tenantName={org?.name ?? orgSlug ?? clerkOrgId}
@@ -37,6 +43,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       pendingApprovals={pendingApprovals}
       openFlags={openFlags}
     >
+      {showFakeAi ? <FakeAiBanner dict={t.fakeAiBanner} /> : null}
       {children}
     </DashboardShell>
   );

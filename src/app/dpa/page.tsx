@@ -4,7 +4,7 @@
 // The German version (/avv) is the authoritative one.
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LegalPlaceholder as P, PublicShell } from '../public-shell';
+import { PublicShell } from '../public-shell';
 
 export const metadata: Metadata = { title: 'Data Processing Agreement — helix.ai' };
 
@@ -24,9 +24,10 @@ export default function DpaPage() {
         <h1>Data Processing Agreement (DPA)</h1>
         <p className="muted">
           Agreement on the processing of personal data on behalf of the controller according
-          to Art. 28 GDPR — between the customer (controller) and{' '}
-          <P>provider company name</P> (processor). English convenience translation — the
-          German <Link href="/avv">AV-Vertrag</Link> is the authoritative version.
+          to Art. 28 GDPR — between the customer (controller) and the pilot-stage operator
+          (Hephaistos Systems / helix.ai, processor). Full legal entity details will be
+          completed before general availability. English convenience translation — the German{' '}
+          <Link href="/avv">AV-Vertrag</Link> is the authoritative version.
         </p>
 
         <h2>§ 1 Subject matter and duration</h2>
@@ -102,13 +103,13 @@ export default function DpaPage() {
 
         <h2>§ 7 Final provisions</h2>
         <p>
-          <P>Liability, place of jurisdiction, severability clause — to be drafted legally</P>
+          Liability, place of jurisdiction, and severability will be finalized in the
+          countersigned pilot DPA package. Until then this page is informational for
+          pilot discussions only — contact{' '}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a>.
         </p>
 
-        <p className="muted">
-          Version: <P>date</P> · Signing: <P>define the counter-signing process
-          (e.g. PDF download with signature fields)</P>
-        </p>
+        <p className="muted">Version: pilot stage · not a countersigned contract by itself.</p>
       </article>
     </PublicShell>
   );

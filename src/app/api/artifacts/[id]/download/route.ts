@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireTenant } from '@/lib/auth-context';
 import { getArtifact, getArtifactContent } from '@/lib/artifacts';
+import { isUuid } from '@/lib/uuid';
 
 export async function GET(
   _req: Request,
@@ -8,6 +9,9 @@ export async function GET(
 ) {
   const { orgId } = await requireTenant();
   const { id } = await params;
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
 
   const artifact = await getArtifact(orgId, id);
   if (!artifact) {

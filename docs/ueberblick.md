@@ -1,6 +1,6 @@
 # helix — Technische Übersicht: Was wirklich gebaut ist
 
-**Stand:** 2026-07-04 · **Zweck:** Ehrliche Bestandsaufnahme des Codestands für YC-Partner und potenzielle Pilotkunden.
+**Stand:** 2026-07-11 · **Zweck:** Ehrliche Bestandsaufnahme des Codestands für YC-Partner und potenzielle Pilotkunden.
 
 > Diese Übersicht beschreibt **ausschließlich, was im Code tatsächlich vorhanden ist** — jede Angabe ist am
 > Quellcode verifiziert (Datei- und Zeilennachweise inline). Der Zukunfts-Ausblick ist als solcher
@@ -16,14 +16,16 @@ Input → Kern → Output. Konkret und heute im Code:
 
 - **Kern (gebaut):** eine tenant-isolierte Wissensbasis mit semantischer Suche und einem RAG-Chat, der
   **nur mit Quellen** antwortet; eine deterministische **Skill-Engine** mit Leitplanke, menschlicher Freigabe
-  und lückenlosem Audit; konfigurierbare **Governance** (wann Freigabe nötig ist, wer welches Wissen sieht).
+  und lückenlosem Audit; konfigurierbare **Governance** (wann Freigabe nötig ist, wer welches Wissen sieht);
+  **Clients** (Kunden-Entität) und **Artifacts** (versionierte Deliverables im privaten Blob-Store);
+  der **Loop** über Deliverables und Prozess-Metriken (Flags, Vorschläge, optional auto-correct).
 - **Input (gebaut, ein zweiter Kanal):** Slack als externer Eingang — Fragen stellen, Skills anstoßen,
   Freigaben per Button erteilen.
 - **Output (gebaut, erster generativer Beweis):** `transkript_zu_framework` — der erste Skill, der ein LLM
   aufruft und ein **neues Deliverable** (ein strukturiertes Framework aus Kundengespräch-Transkripten)
-  entwirft, hinter dem bestehenden Freigabe-Gate.
+  entwirft, hinter dem bestehenden Freigabe-Gate, und als **Artifact** persistiert.
 
-Die vollständige Vision (kontinuierliche Tool-Anbindung, Warn-Flags, der geschlossene Loop) ist im
+Die vollständige Vision (kontinuierliche Tool-Anbindung, durable Langläufe, Loop-Quelle Tool-Artefakte) ist im
 [OS-Bauplan](helix-os-bauplan-us.md) beschrieben. **Diese Seite trennt strikt: gebaut vs. geplant.**
 
 Die **Fähigkeit** ist das Verkaufsargument (Company Brain → sichere, ausführbare Skills → Freigabe-Loop),
@@ -163,6 +165,31 @@ Slack kommt **ohne** Clerk-Session herein, daher eine harte Gate-Sequenz (`src/l
 `approve`/`reject`). **ack-then-work** (200 vor der eigentlichen Arbeit) plus **Idempotenz-Claim** pro Tenant
 verhindern Doppelverarbeitung bei Slack-Re-Deliveries. Alles läuft ab der Team-Auflösung durch `withTenant`.
 
+### 9 — Clients, Artifacts, privater Blob-Store (gebaut)
+
+- **Clients** (`prisma/schema.prisma` · `src/lib/clients.ts` · Dashboard `/dashboard/clients`): tenant-scoped
+  Kunden-Entität mit Name/Notes; Runs und Artifacts können per Composite-FK an einen Client gebunden werden.
+- **Artifacts** (`src/lib/artifacts.ts` · `/dashboard/deliverables`): Metadaten (Typ, Version, slug, clientId,
+  runId) + `blobKey`; Download nur über RLS-gesicherte App-Route
+  (`/api/artifacts/[id]/download`) — Bytes werden serverseitig gestreamt, nie als öffentliche Capability-URL.
+- **Private Blobs** (`src/lib/storage/blob.ts`): Vercel Blob mit `access: 'private'`; Fake-Provider für Tests.
+- **Client-Memory** (`src/lib/memory/history.ts`): prior runs + latest deliverable-Inhalte für Skill-`prepare()`
+  (Blob-Reads **außerhalb** der Tenant-Tx).
+
+### 10 — Loop über Deliverables (gebaut; Tool-Quelle noch nicht)
+
+- **ObservationSource** (`src/lib/loop/sources/`): Phase-1-Quelle `DeliverableSource` liest Artifacts.
+- **Kriterien + Metriken** (`criteria/`, `metrics.ts`, `evaluate.ts`): deterministische Soll-Prüfung, kein LLM-Richter.
+- **Flags** als Audit-Einträge; **Suggest** / **Autonomous** (`settings.ts`, `auto-correct.ts`) mit Tageslimit.
+- **Cron** `/api/cron/loop` (siehe `vercel.json`).
+- **Noch nicht:** Tool-Artefakt-Quelle und schreibende Konnektoren (bewusst Roadmap / WIP).
+
+### 11 — `prepare()`-Hook der Skill-Engine (gebaut)
+
+Teure Arbeit (LLM, Embeddings, externe Reads) läuft im optionalen **`StepDef.prepare`** **vor** `withTenant()`
+(`src/lib/skills/types.ts`, `engine.ts`). `run()` schreibt nur das vorbereitete Ergebnis in einer kurzen Tx.
+Genutzt u. a. von `transkript_zu_framework` und `wissen_zusammenfassen` (Embedding vor Tx).
+
 ---
 
 ## Die Skills, die tatsächlich existieren (5)
@@ -193,10 +220,9 @@ Drittsysteme.
 
 | Signal | Wert | Nachweis |
 |---|---|---|
-| Test-Dateien | **32** in `tests/` + **1** Playwright-E2E (`e2e/smoke.spec.ts`) | `tests/*.test.ts` |
-| Test-Fälle (`it`/`test`) | **276** in **109** `describe`-Blöcken | gezählt in `tests/` |
-| DB-Migrationen | **21** (`0001_init` … `0021_answer_trace`), streng additiv, per Checkliste | `prisma/migrations/` |
-| CI-Gate | ein Job **„Tenant isolation gate"** auf jeden Push/PR | `.github/workflows/ci.yml:10-11` |
+| Test-Dateien | **40+** in `tests/` + **1** Playwright-E2E (`e2e/smoke.spec.ts`) | `tests/*.test.ts` |
+| DB-Migrationen | **29** (`0001_init` … `0029_assert_app_user_hardening`), streng additiv, per Checkliste | `prisma/migrations/` |
+| CI-Gate | ein Job **„Tenant isolation gate"** auf jeden Push/PR | `.github/workflows/ci.yml` |
 
 **Das CI-Gate ist die Kern-Disziplin:** Es startet ein echtes `pgvector/pgvector:pg16`, legt die
 **least-privileged** Rolle `app_user` an, wendet die Migrationen als Owner an und lässt dann die **gesamte
@@ -221,18 +247,17 @@ README dokumentiert sie als „the most important section".
 **Gebaut und im Code nachweisbar (diese Seite):**
 Mandantentrennung (RLS+FORCE), 15s-Failsafe, Governance mit Geld-Failsafe + Presets, append-only Audit,
 AES-256-GCM-Token, RAG mit Quellen + Answer-Trace + Disclosure-Filter, deterministische Skill-Engine mit
-request-übergreifendem Resume und sanktioniertem generativem Pfad, Slack als zweiter Eingang, der erste
-generative Deliverable-Skill, ein hartes CI-Isolations-Gate.
+`prepare()`-Hook, request-übergreifendem Resume und sanktioniertem generativem Pfad, Slack als zweiter Eingang,
+Clients + Artifacts + **private** Blobs, Client-Memory, Loop über Deliverables (Kriterien, Metriken, Flags,
+Suggest/Autonomous), der erste generative Deliverable-Skill, ein hartes CI-Isolations-Gate.
 
 **Vision / Roadmap (im [OS-Bauplan](helix-os-bauplan-us.md), noch nicht gebaut):**
-Kunden-/Projekt-Entität + Artefakt-Speicher · request-übergreifende **durable** Ausführung (Queue) ·
+request-übergreifende **durable** Ausführung (Queue/Worker) · Multi-Checkpoint-Approvals ·
 kontinuierliche, lesende **Tool-Anbindung** (Linear/GitHub/Google) mit Dedup und fail-closed-Sichtbarkeit ·
-**Warn-Flags** und der geschlossene **Loop** (beobachten → mit dem Soll vergleichen → melden) · **schreibende**
-Tool-Aktionen hinter checkpoint-gebundenen Approvals. Der Plan ordnet diese Bausteine in Etappen 2–4 ein und
-benennt ihre Risiken.
+Loop-Quelle 2 (Tool-Artefakte) · **schreibende** Tool-Aktionen hinter checkpoint-gebundenen Approvals.
 
-**Bewusst NICHT jetzt (im Plan festgehalten):** kein autonomer Qualitäts-Regelkreis, kein LLM als Richter,
-kein selbstständiges Ändern von Deliverables. helix meldet — Nachjustieren bleibt beim Menschen.
+**Bewusst NICHT jetzt (im Plan festgehalten):** kein autonomer Qualitäts-Regelkreis, kein LLM als Richter
+über inhaltliche Qualität. Der Loop prüft deterministisch und meldet; Nachjustieren bleibt (Default) beim Menschen.
 
 ---
 

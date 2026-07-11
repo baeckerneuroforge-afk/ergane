@@ -1,4 +1,25 @@
-export { startRun, approve, reject } from './engine';
-export type { RunHandle } from './engine';
-export { getSkill, listSkills } from './catalog';
+export {
+  startRun,
+  continueRun,
+  advanceRunOnce,
+  driveRun,
+  approve,
+  reject,
+  isRetriableStepError,
+  MAX_STEP_ATTEMPTS,
+  CLAIM_LEASE_MS,
+} from './engine';
+export type { RunHandle, StartRunOptions, DriveMode } from './engine';
+export {
+  runDurableTick,
+  listDurableRunCandidates,
+  DURABLE_TICK_DEFAULT_MAX_RUNS,
+} from './durable-tick';
+export type { DurableTickResult } from './durable-tick';
+export {
+  getSkill,
+  listSkills,
+  __registerSkillForTests,
+  __clearTestSkills,
+} from './catalog';
 export type { SkillDef, StepDef, SkillContext, SkillJson, GuardrailResult } from './types';
