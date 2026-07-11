@@ -309,6 +309,12 @@ model SkillRun {
   /// auto-correct a correction run again (anti-loop guard). Default false.
   isCorrection Boolean     @default(false) @map("is_correction")
   clientId  String?        @map("client_id") @db.Uuid
+  /// Durable continue/resume lease: concurrent advances are serialized. NULL
+  /// claim_until (or past) ⇒ free to claim. claim_token identifies the holder.
+  claimToken   String?   @map("claim_token")
+  claimUntil   DateTime? @map("claim_until") @db.Timestamptz(6)
+  /// Retriable failure attempts for the *next* incomplete step (reset on success).
+  stepAttempts Int       @default(0) @map("step_attempts")
   createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -354,6 +360,10 @@ model Approval {
   /// Role required to decide (from the approval policy). NULL = pre-policy
   /// behavior: any decided_by may decide (kept for runs without a policy).
   requiredRole Role?          @map("required_role")
+  /// Checkpoint binding (0030+): which acting step this approval clears.
+  /// NULL only on legacy pre-0030 rows — those still clear any step (compat).
+  stepIdx      Int?           @map("step_idx")
+  stepName     String?        @map("step_name")
   decidedBy    String?        @map("decided_by")
   decidedAt    DateTime?      @map("decided_at") @db.Timestamptz(6)
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -363,6 +373,7 @@ model Approval {
 
   @@index([orgId, status, createdAt])
   @@index([runId])
+  @@index([runId, stepIdx, status], map: "approvals_run_id_step_idx_status_idx")
   @@map("approvals")
 }
 

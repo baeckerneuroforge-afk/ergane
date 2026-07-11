@@ -1,63 +1,30 @@
 // Skill execution engine: guardrail → human approval → audit, per tenant.
 //
-// Lifecycle of a run:
+// Durable multi-step (Phase durable / multi-checkpoint):
 //
-//   startRun()            running ──(steps execute, one tx each)──▶ completed
-//                            │
-//                            │ acting step + guardrail triggered
-//                            ▼
-//                       awaiting_approval   ← NOTHING acts while paused
-//                        │           │
-//              approve() │           │ reject()
-//                        ▼           ▼
-//                     approved     rejected  (acting step never ran)
-//                        │
-//                        └─(remaining steps)──▶ completed
+//   startRun()  → creates the run, then either advances ONE step (drive:'one_step')
+//                 or drives to the next gate/terminal (default 'to_terminal',
+//                 product/dashboard compat).
+//   continueRun() / advanceRunOnce() → at most ONE durable step advance.
+//   approve()   → decides the pending checkpoint, then drives remaining steps
+//                 until the next gate or terminal (default).
 //
-// Invariants:
-//   - Every DB access happens inside withTenant(orgId, …) — RLS applies, no
-//     tenant context ⇒ zero effect (fail closed).
-//   - Every state change writes to the append-only audit_log: skill.started,
-//     skill.step_completed, guardrail.triggered, approval.approved,
-//     approval.rejected, skill.completed, skill.failed. Engine actions are
-//     actor_type 'agent'; approve/reject are 'human' (decided_by).
-//   - Each step is atomic: step effect + skill_step row + audit entry share one
-//     transaction.
-//   - An acting step of a handlesMoney skill NEVER executes unless either the
-//     guardrail says "not triggered" or a human approval exists. A money skill
-//     without a guardrail fails closed (always requires approval).
+// Invariants (unchanged):
+//   - Every DB access inside withTenant(orgId, …) — RLS, fail closed.
+//   - Step effect + skill_step row + audit share one transaction.
+//   - Money failsafe + policies + simulation never awaiting_approval.
 //
-// Approval policies (Phase 4, approval_policies table) configure WHEN a human
-// is needed — per tenant, per skill. Resolution order in the gate:
-//   1. an approved approval for this run       → cleared (resume path)
-//   2. tenant policy 'always'                  → approval required
-//   3. tenant policy 'threshold'               → required iff amount ≥ threshold
-//                                                (unknown amount: fail closed)
-//   4. tenant policy 'never'                   → honored ONLY for skills without
-//      money effects; for handlesMoney skills it is overridden at runtime
-//      (audit 'policy.overridden_failsafe') and the skill's own guardrail
-//      applies — this non-disablability is deliberate and tested
-//   5. no policy                               → pre-policy behavior (skill
-//      guardrail; handlesMoney without guardrail ⇒ always approval)
-// A policy-produced approval stores required_role (policy.approver_role,
-// default 'lead'); decide() then verifies the decider's membership holds that
-// role (admin/owner always qualify). Approvals without required_role (no-policy
-// case) keep the pre-policy behavior. Policies act only WITHIN the tenant —
-// they are read through withTenant(), so tenant B's policies can never
-// influence tenant A.
+// Approvals are STEP-BOUND (step_idx + step_name). An approved checkpoint
+// clears ONLY that acting step; a later acts:true step re-evaluates the gate.
+// Legacy approvals with NULL step_idx (pre-0030) still clear any step (compat).
 //
-// Dry-run (mode='simulation', "Probelauf"): a run started with mode 'simulation'
-// walks EVERY step exactly like a live run — retrieval, context building,
-// guardrail evaluation and the approval-need check all run and are recorded —
-// but each ACTING step is SIMULATED instead of executed (recordSimulatedStep):
-// no effect fires and the run NEVER pauses in awaiting_approval. Instead the
-// simulated step captures what WOULD happen, including whether an approval
-// would be required and why (so the money failsafe stays visible). A simulation
-// therefore always ends in completed/failed, never awaiting_approval, and is
-// marked mode='simulation' on the run + audit so it is never mistaken for — or
-// counted as — a real execution.
+// Claims (claim_token / claim_until) serialize concurrent continue/resume.
+// Retriable step failures keep the run running under MAX_STEP_ATTEMPTS and do
+// not write a permanent failed step until the budget is exhausted.
+import { randomUUID } from 'node:crypto';
 import { Prisma, type Role, type SkillRun, type SkillRunMode } from '@prisma/client';
 import { logAudit } from '../audit';
+import { OutboundTimeoutError } from '../http-timeout';
 import { evaluateDeliverableCriteria } from '../loop/evaluate';
 import { assertWithinDailyLimit } from '../limits';
 import { getMemberRole, roleSatisfies } from '../policies';
@@ -73,8 +40,33 @@ export interface RunHandle {
 
 const ENGINE_ACTOR = 'skill-engine';
 
+/** Max retriable attempts for the current next step (including the first try). */
+export const MAX_STEP_ATTEMPTS = 3;
+
+/** Claim lease length for advanceRunOnce (ms). */
+export const CLAIM_LEASE_MS = 60_000;
+
+/** How far startRun/approve drive after create/decide. */
+export type DriveMode = 'to_terminal' | 'one_step';
+
 function asJson(value: SkillJson): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
+}
+
+function isAdvanceable(status: SkillRun['status']): boolean {
+  return status === 'running' || status === 'approved';
+}
+
+/** Retriable: timeouts / transient network-ish failures. Permanent otherwise. */
+export function isRetriableStepError(err: unknown): boolean {
+  if (err instanceof OutboundTimeoutError) return true;
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'OutboundTimeoutError' || err.name === 'TimeoutError' || err.name === 'AbortError') {
+    return true;
+  }
+  return /timeout|temporar|ECONNRESET|ECONNREFUSED|ETIMEDOUT|503|502|429|fetch failed/i.test(
+    err.message,
+  );
 }
 
 /** Options for a run. */
@@ -95,15 +87,19 @@ export interface StartRunOptions {
    * startCorrectionRun sets this; every other start leaves it false.
    */
   isCorrection?: boolean;
+  /**
+   * 'to_terminal' (default) = keep advancing in this invocation until
+   * awaiting_approval | completed | failed | rejected — preserves catalog UX.
+   * 'one_step' = durable mode: create + at most one step advance; caller uses
+   * continueRun() for further steps.
+   */
+  drive?: DriveMode;
 }
 
 /**
- * Start a new run of `skillKey` for the tenant and execute steps until the run
- * completes, fails, or pauses at the guardrail (awaiting_approval).
- *
- * In a dry-run (opts.mode='simulation') acting steps never execute and the run
- * never pauses: it walks every step, records what WOULD happen (including
- * whether an approval would be required, and why), and ends completed/failed.
+ * Start a new run of `skillKey` for the tenant.
+ * Default drive completes or pauses at the first gate (product compat).
+ * With drive:'one_step', only the first durable advance runs.
  */
 export async function startRun(
   orgId: string,
@@ -115,17 +111,20 @@ export async function startRun(
   const mode: SkillRunMode = opts.mode ?? 'live';
   const clientId = opts.clientId ?? null;
   const isCorrection = opts.isCorrection ?? false;
+  const drive: DriveMode = opts.drive ?? 'to_terminal';
 
   const run = await withTenant(orgId, async (tx) => {
-    // Kostenschutz: Tageslimit für Skill-Läufe (weiches Limit, siehe limits.ts).
-    // Ein Probelauf zählt bewusst mit — er verursacht dieselben Lese-/LLM-Kosten
-    // wie ein Live-Lauf; nur die WIRKENDEN Schritte entfallen.
     await assertWithinDailyLimit(tx, 'run');
     const created = await tx.skillRun.create({
-      // is_correction is set here, at creation, so the run's OWN end-of-run
-      // criteria evaluation (evaluateDeliverableCriteria) already sees it and the
-      // anti-loop guard never escalates a correction-run flag to another run.
-      data: { orgId, skillKey: skill.key, status: 'running', mode, input: asJson(input), clientId, isCorrection },
+      data: {
+        orgId,
+        skillKey: skill.key,
+        status: 'running',
+        mode,
+        input: asJson(input),
+        clientId,
+        isCorrection,
+      },
     });
     await logAudit(tx, {
       orgId,
@@ -133,27 +132,60 @@ export async function startRun(
       actorType: 'agent',
       action: 'skill.started',
       target: `${skill.key}:${created.id}`,
-      // Live bleibt unverändert (kein detail); ein Probelauf ist im Audit klar
-      // als solcher markiert (mode='simulation').
       detail: mode === 'simulation' ? { mode } : undefined,
     });
     return created;
   });
 
-  return executeFrom(orgId, skill, run.id, input, 0, {}, mode);
+  if (drive === 'one_step') {
+    return advanceRunOnce(orgId, run.id);
+  }
+  return driveRun(orgId, run.id);
+}
+
+/**
+ * Public durable continue/resume: advance at most one step (or pause/fail).
+ * Idempotent under double-delivery via claim lease + unique (run_id, idx).
+ */
+export async function continueRun(orgId: string, runId: string): Promise<RunHandle> {
+  return advanceRunOnce(orgId, runId);
+}
+
+/**
+ * Keep advancing while the run is advanceable (running/approved), until a
+ * terminal status or awaiting_approval. Caps iterations as a safety bound.
+ */
+export async function driveRun(
+  orgId: string,
+  runId: string,
+  maxSteps = 64,
+): Promise<RunHandle> {
+  let handle: RunHandle = { runId, status: 'running' };
+  for (let i = 0; i < maxSteps; i++) {
+    handle = await advanceRunOnce(orgId, runId);
+    if (!isAdvanceable(handle.status)) {
+      return handle;
+    }
+  }
+  return handle;
 }
 
 /**
  * Approve the pending approval of a paused run (four-eyes: `decidedBy` is the
- * human who signed off) and resume execution until completed/failed.
+ * human who signed off) and resume until the next gate or terminal.
  */
 export async function approve(
   orgId: string,
   runId: string,
   decidedBy: string,
+  opts: { drive?: DriveMode } = {},
 ): Promise<RunHandle> {
-  const { skill, input, doneCount, state, mode } = await decide(orgId, runId, decidedBy, 'approved');
-  return executeFrom(orgId, skill, runId, input, doneCount, state, mode);
+  await decide(orgId, runId, decidedBy, 'approved');
+  const drive = opts.drive ?? 'to_terminal';
+  if (drive === 'one_step') {
+    return advanceRunOnce(orgId, runId);
+  }
+  return driveRun(orgId, runId);
 }
 
 /**
@@ -172,18 +204,16 @@ export async function reject(
 // -----------------------------------------------------------------------------
 
 /** Shared approve/reject transition: validates state, updates approval + run,
- * writes the human audit entry, and returns what a resume needs. */
+ * writes the human audit entry. */
 async function decide(
   orgId: string,
   runId: string,
   decidedBy: string,
   decision: 'approved' | 'rejected',
-) {
+): Promise<void> {
   if (!decidedBy.trim()) throw new Error('decide: decidedBy (the human) is required.');
 
-  return withTenant(orgId, async (tx) => {
-    // RLS already scopes to the tenant; findUniqueOrThrow on a foreign runId
-    // therefore fails with "not found" rather than leaking anything.
+  await withTenant(orgId, async (tx) => {
     const run = await tx.skillRun.findUniqueOrThrow({ where: { id: runId } });
     if (run.status !== 'awaiting_approval') {
       throw new Error(`decide: run ${runId} is ${run.status}, not awaiting_approval.`);
@@ -192,9 +222,6 @@ async function decide(
       where: { runId, status: 'pending' },
     });
 
-    // Role gate (four-eyes): a policy-produced approval names the role that may
-    // decide it. Fail-closed: no membership ⇒ no decision. Approvals without
-    // required_role (created without a policy) keep the pre-policy behavior.
     if (approval.requiredRole) {
       const deciderRole = await getMemberRole(tx, decidedBy);
       if (!deciderRole || !roleSatisfies(deciderRole, approval.requiredRole)) {
@@ -209,31 +236,26 @@ async function decide(
       where: { id: approval.id },
       data: { status: decision, decidedBy, decidedAt: new Date() },
     });
-    await tx.skillRun.update({ where: { id: runId }, data: { status: decision } });
+    await tx.skillRun.update({
+      where: { id: runId },
+      data: {
+        status: decision,
+        // Free any stale claim so resume can take the lease.
+        claimToken: null,
+        claimUntil: null,
+      },
+    });
     await logAudit(tx, {
       orgId,
       actorId: decidedBy,
       actorType: 'human',
       action: `approval.${decision}`,
       target: `${run.skillKey}:${runId}`,
+      detail:
+        approval.stepIdx != null
+          ? { stepIdx: approval.stepIdx, stepName: approval.stepName }
+          : undefined,
     });
-
-    const doneSteps = await tx.skillStep.findMany({
-      where: { runId, status: 'done' },
-      orderBy: { idx: 'asc' },
-    });
-    const state: Record<string, SkillJson> = {};
-    for (const s of doneSteps) state[s.name] = (s.detail ?? {}) as SkillJson;
-
-    return {
-      skill: getSkill(run.skillKey),
-      input: run.input as SkillJson,
-      doneCount: doneSteps.length,
-      state,
-      // A simulation never reaches awaiting_approval, so a resumed run is always
-      // 'live' — reading it from the row keeps that correct rather than assumed.
-      mode: run.mode,
-    };
   });
 }
 
@@ -260,23 +282,42 @@ function skillDefaultGate(skill: SkillDef, input: SkillJson): { cleared: boolean
   return { cleared: true, reason: 'guardrail not triggered' };
 }
 
-/** True when the acting step may run. Resolution order: approved approval →
- * tenant approval policy (always/threshold/never-with-failsafe) → skill default.
- * Fail-closed at every branch. */
+/**
+ * True when the acting step at `stepIdx` may run.
+ * Resolution: approved approval FOR THIS STEP (or legacy null-stepIdx) →
+ * tenant policy → skill default.
+ */
 async function actingStepCleared(
   orgId: string,
   skill: SkillDef,
   runId: string,
   input: SkillJson,
+  stepIdx: number,
 ): Promise<GateVerdict> {
-  const { approved, policy } = await withTenant(orgId, async (tx) => ({
-    approved: await tx.approval.findFirst({ where: { runId, status: 'approved' } }),
-    policy: await tx.approvalPolicy.findUnique({
+  const { approvedForStep, legacyGlobalApproved, policy } = await withTenant(orgId, async (tx) => {
+    const approvedForStep = await tx.approval.findFirst({
+      where: { runId, status: 'approved', stepIdx },
+    });
+    // Pre-0030 rows: step_idx NULL. Keep old "any approved clears all" only for
+    // those legacy rows so existing DBs do not brick mid-flight runs.
+    const legacyGlobalApproved = await tx.approval.findFirst({
+      where: { runId, status: 'approved', stepIdx: null },
+    });
+    const policy = await tx.approvalPolicy.findUnique({
       where: { orgId_skillKey: { orgId, skillKey: skill.key } },
-    }),
-  }));
-  if (approved) {
-    return { cleared: true, reason: 'approved by human', requiredRole: null };
+    });
+    return { approvedForStep, legacyGlobalApproved, policy };
+  });
+
+  if (approvedForStep) {
+    return {
+      cleared: true,
+      reason: `approved by human for step ${stepIdx}`,
+      requiredRole: null,
+    };
+  }
+  if (legacyGlobalApproved) {
+    return { cleared: true, reason: 'approved by human (legacy run-global)', requiredRole: null };
   }
 
   if (policy) {
@@ -289,8 +330,6 @@ async function actingStepCleared(
     if (policy.mode === 'threshold') {
       const threshold = policy.thresholdAmount ? policy.thresholdAmount.toNumber() : null;
       const amount = skill.amountOf ? skill.amountOf(input) : null;
-      // Fail closed: a threshold policy without a usable threshold or amount
-      // behaves like 'always'.
       if (threshold === null || amount === null) {
         return {
           cleared: false,
@@ -305,15 +344,17 @@ async function actingStepCleared(
           requiredRole,
         };
       }
-      return { cleared: true, reason: `Amount below policy threshold ${threshold.toFixed(2)} EUR`, requiredRole };
+      return {
+        cleared: true,
+        reason: `Amount below policy threshold ${threshold.toFixed(2)} EUR`,
+        requiredRole,
+      };
     }
 
     // mode === 'never'
     if (!skill.handlesMoney) {
       return { cleared: true, reason: 'Policy: no approval needed', requiredRole };
     }
-    // FAILSAFE (deliberately non-disablable): 'never' on a money skill is
-    // ignored at runtime — the skill's own guardrail applies instead. Audited.
     await withTenant(orgId, (tx) =>
       logAudit(tx, {
         orgId,
@@ -331,44 +372,143 @@ async function actingStepCleared(
     return { ...fallback, requiredRole };
   }
 
-  // No policy: pre-policy behavior, approvals carry no required_role.
   return { ...skillDefaultGate(skill, input), requiredRole: null };
 }
 
-/** Execute steps starting at `startIdx`; pauses at the guardrail (live only),
- * completes, or fails. Each step runs in its own withTenant transaction. In
- * mode='simulation' acting steps are simulated (recordSimulatedStep), the run
- * never pauses, and it always ends completed/failed. */
-async function executeFrom(
+interface ClaimedAdvance {
+  skill: SkillDef;
+  input: SkillJson;
+  mode: SkillRunMode;
+  nextIdx: number;
+  state: Record<string, SkillJson>;
+  stepAttempts: number;
+  claimToken: string;
+}
+
+type ClaimResult =
+  | { kind: 'terminal'; status: SkillRun['status'] }
+  | { kind: 'busy'; status: SkillRun['status'] }
+  | { kind: 'claimed'; data: ClaimedAdvance };
+
+async function claimAdvance(orgId: string, runId: string): Promise<ClaimResult> {
+  const claimToken = randomUUID();
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + CLAIM_LEASE_MS);
+
+  return withTenant(orgId, async (tx) => {
+    const run = await tx.skillRun.findUniqueOrThrow({ where: { id: runId } });
+
+    if (!isAdvanceable(run.status)) {
+      return { kind: 'terminal' as const, status: run.status };
+    }
+
+    if (run.claimUntil && run.claimUntil > now) {
+      // Another worker holds the lease — do not advance (idempotent no-op).
+      return { kind: 'busy' as const, status: run.status };
+    }
+
+    await tx.skillRun.update({
+      where: { id: runId },
+      data: { claimToken, claimUntil: leaseUntil },
+    });
+
+    const doneSteps = await tx.skillStep.findMany({
+      where: { runId, status: 'done' },
+      orderBy: { idx: 'asc' },
+    });
+    const state: Record<string, SkillJson> = {};
+    for (const s of doneSteps) state[s.name] = (s.detail ?? {}) as SkillJson;
+
+    // Contiguous done steps 0..n-1; next idx is the count of done steps.
+    // Unique (run_id, idx) prevents double-done under races.
+    const nextIdx = doneSteps.length;
+
+    return {
+      kind: 'claimed' as const,
+      data: {
+        skill: getSkill(run.skillKey),
+        input: run.input as SkillJson,
+        mode: run.mode,
+        nextIdx,
+        state,
+        stepAttempts: run.stepAttempts,
+        claimToken,
+      },
+    };
+  });
+}
+
+async function releaseClaim(
   orgId: string,
-  skill: SkillDef,
   runId: string,
-  input: SkillJson,
-  startIdx: number,
-  state: Record<string, SkillJson>,
-  mode: SkillRunMode,
-): Promise<RunHandle> {
-  for (let idx = startIdx; idx < skill.steps.length; idx++) {
-    const step = skill.steps[idx];
+  claimToken: string,
+  patch: {
+    status?: SkillRun['status'];
+    stepAttempts?: number;
+    result?: SkillJson;
+  } = {},
+): Promise<void> {
+  await withTenant(orgId, async (tx) => {
+    const run = await tx.skillRun.findUnique({ where: { id: runId } });
+    if (!run || run.claimToken !== claimToken) return;
+    await tx.skillRun.update({
+      where: { id: runId },
+      data: {
+        claimToken: null,
+        claimUntil: null,
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.stepAttempts !== undefined ? { stepAttempts: patch.stepAttempts } : {}),
+        ...(patch.result !== undefined ? { result: asJson(patch.result) } : {}),
+      },
+    });
+  });
+}
 
-    if (step.acts) {
-      // Guardrail + approval-need are evaluated in BOTH modes — a dry-run must
-      // hit exactly the gate a live run would (including the money failsafe).
-      const gate = await actingStepCleared(orgId, skill, runId, input);
+/**
+ * Advance at most ONE step (or pause at gate / fail / complete if no steps left).
+ * This is the durable unit of work used by continueRun, startRun(one_step), and
+ * each iteration of driveRun.
+ */
+export async function advanceRunOnce(orgId: string, runId: string): Promise<RunHandle> {
+  const claimed = await claimAdvance(orgId, runId);
+  if (claimed.kind === 'terminal' || claimed.kind === 'busy') {
+    return { runId, status: claimed.status };
+  }
 
-      if (mode === 'simulation') {
-        // DRY-RUN: never execute the effect, never pause. Record what WOULD
-        // happen (incl. whether approval would be required, and why) and move on.
-        await recordSimulatedStep(orgId, skill, runId, idx, step, input, state, gate);
-        continue;
+  const { skill, input, mode, nextIdx, state, stepAttempts, claimToken } = claimed.data;
+
+  // All steps done but run not completed yet (e.g. after last step write race).
+  if (nextIdx >= skill.steps.length) {
+    await finalizeCompleted(orgId, skill, runId, state, mode, claimToken);
+    return { runId, status: 'completed' };
+  }
+
+  const step = skill.steps[nextIdx]!;
+
+  if (step.acts) {
+    const gate = await actingStepCleared(orgId, skill, runId, input, nextIdx);
+
+    if (mode === 'simulation') {
+      await recordSimulatedStep(orgId, skill, runId, nextIdx, step, input, state, gate);
+      const isLast = nextIdx === skill.steps.length - 1;
+      if (isLast) {
+        await finalizeCompleted(orgId, skill, runId, state, mode, claimToken);
+        return { runId, status: 'completed' };
       }
+      await releaseClaim(orgId, runId, claimToken, { status: 'running', stepAttempts: 0 });
+      return { runId, status: 'running' };
+    }
 
-      if (!gate.cleared) {
-        await withTenant(orgId, async (tx) => {
-          await tx.skillRun.update({
-            where: { id: runId },
-            data: { status: 'awaiting_approval' },
-          });
+    if (!gate.cleared) {
+      await withTenant(orgId, async (tx) => {
+        const run = await tx.skillRun.findUnique({ where: { id: runId } });
+        if (!run || run.claimToken !== claimToken) return;
+        // Idempotent pause: if already awaiting with a pending approval for this
+        // step, just release claim.
+        const existing = await tx.approval.findFirst({
+          where: { runId, status: 'pending', stepIdx: nextIdx },
+        });
+        if (!existing) {
           await tx.approval.create({
             data: {
               orgId,
@@ -376,6 +516,8 @@ async function executeFrom(
               reason: gate.reason,
               status: 'pending',
               requiredRole: gate.requiredRole,
+              stepIdx: nextIdx,
+              stepName: step.name,
             },
           });
           await logAudit(tx, {
@@ -384,37 +526,58 @@ async function executeFrom(
             actorType: 'agent',
             action: 'guardrail.triggered',
             target: `${skill.key}:${runId}: ${gate.reason}`,
+            detail: { stepIdx: nextIdx, stepName: step.name },
           });
+        }
+        await tx.skillRun.update({
+          where: { id: runId },
+          data: {
+            status: 'awaiting_approval',
+            claimToken: null,
+            claimUntil: null,
+          },
         });
-        // NACH dem Commit: best-effort-Benachrichtigung (wirft nie — die
-        // Freigabe existiert bereits, mit oder ohne Mail).
-        await notifyApprovalRequested({
-          orgId,
-          runId,
-          skillKey: skill.key,
-          skillTitle: skill.title,
-          reason: gate.reason,
-        });
-        return { runId, status: 'awaiting_approval' };
-      }
+      });
+      await notifyApprovalRequested({
+        orgId,
+        runId,
+        skillKey: skill.key,
+        skillTitle: skill.title,
+        reason: gate.reason,
+      });
+      return { runId, status: 'awaiting_approval' };
     }
+  }
 
-    try {
-      // PRE-TRANSACTION PHASE (the non-negotiable rule): if the step declares a
-      // prepare() hook, its expensive/slow work (an LLM or external tool call)
-      // runs HERE, BEFORE withTenant() opens — never inside the 15s tenant
-      // transaction. Exactly the answerQuestion pattern: costly call first, then
-      // a SHORT transaction writes only the result atomically. Steps without
-      // prepare() skip this entirely (prepared stays undefined).
-      const prepared = step.prepare
-        ? await step.prepare({ orgId, runId, input, state })
-        : undefined;
-      await withTenant(orgId, async (tx) => {
-        // Step effect + step row + audit entry: one atomic transaction.
+  try {
+    const prepared = step.prepare
+      ? await step.prepare({ orgId, runId, input, state })
+      : undefined;
+
+    await withTenant(orgId, async (tx) => {
+      const run = await tx.skillRun.findUnique({ where: { id: runId } });
+      if (!run || run.claimToken !== claimToken) {
+        throw new Error('advanceRunOnce: claim lost before step write');
+      }
+      // Idempotent: if this idx is already done (double-delivery after success),
+      // skip the effect.
+      const already = await tx.skillStep.findFirst({
+        where: { runId, idx: nextIdx, status: 'done' },
+      });
+      if (already) {
+        state[step.name] = (already.detail ?? {}) as SkillJson;
+      } else {
         const detail = await step.run({ orgId, tx, input, state, prepared });
         state[step.name] = detail;
         await tx.skillStep.create({
-          data: { orgId, runId, idx, name: step.name, status: 'done', detail: asJson(detail) },
+          data: {
+            orgId,
+            runId,
+            idx: nextIdx,
+            name: step.name,
+            status: 'done',
+            detail: asJson(detail),
+          },
         });
         await logAudit(tx, {
           orgId,
@@ -423,37 +586,116 @@ async function executeFrom(
           action: 'skill.step_completed',
           target: `${skill.key}:${step.name}`,
         });
+      }
+    });
+  } catch (err) {
+    // Claim-lost after concurrent winner wrote the step: treat as success path.
+    if (err instanceof Error && /claim lost/i.test(err.message)) {
+      const status = await withTenant(orgId, async (tx) => {
+        const r = await tx.skillRun.findUniqueOrThrow({ where: { id: runId } });
+        return r.status;
       });
-    } catch (err) {
+      return { runId, status };
+    }
+
+    // Unique violation on (run_id, idx) ⇒ peer already wrote done — re-read.
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2002'
+    ) {
+      const status = await withTenant(orgId, async (tx) => {
+        const r = await tx.skillRun.findUniqueOrThrow({ where: { id: runId } });
+        return r.status;
+      });
+      await releaseClaim(orgId, runId, claimToken).catch(() => {});
+      return { runId, status };
+    }
+
+    const attempts = stepAttempts + 1;
+    if (isRetriableStepError(err) && attempts < MAX_STEP_ATTEMPTS) {
       await withTenant(orgId, async (tx) => {
+        const run = await tx.skillRun.findUnique({ where: { id: runId } });
+        if (!run || run.claimToken !== claimToken) return;
+        await logAudit(tx, {
+          orgId,
+          actorId: ENGINE_ACTOR,
+          actorType: 'agent',
+          action: 'skill.step_retry',
+          target: `${skill.key}:${step.name}`,
+          detail: {
+            attempt: attempts,
+            maxAttempts: MAX_STEP_ATTEMPTS,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+        await tx.skillRun.update({
+          where: { id: runId },
+          data: {
+            status: 'running',
+            stepAttempts: attempts,
+            claimToken: null,
+            claimUntil: null,
+          },
+        });
+      });
+      return { runId, status: 'running' };
+    }
+
+    await withTenant(orgId, async (tx) => {
+      const run = await tx.skillRun.findUnique({ where: { id: runId } });
+      if (!run || run.claimToken !== claimToken) return;
+      // Avoid duplicate failed rows on final double-delivery.
+      const existing = await tx.skillStep.findFirst({ where: { runId, idx: nextIdx } });
+      if (!existing) {
         await tx.skillStep.create({
           data: {
             orgId,
             runId,
-            idx,
+            idx: nextIdx,
             name: step.name,
             status: 'failed',
             detail: asJson({ error: err instanceof Error ? err.message : String(err) }),
           },
         });
-        await tx.skillRun.update({ where: { id: runId }, data: { status: 'failed' } });
-        await logAudit(tx, {
-          orgId,
-          actorId: ENGINE_ACTOR,
-          actorType: 'agent',
-          action: 'skill.failed',
-          target: `${skill.key}:${step.name}`,
-          detail: mode === 'simulation' ? { mode } : undefined,
-        });
+      }
+      await tx.skillRun.update({
+        where: { id: runId },
+        data: {
+          status: 'failed',
+          claimToken: null,
+          claimUntil: null,
+        },
       });
-      return { runId, status: 'failed' };
-    }
+      await logAudit(tx, {
+        orgId,
+        actorId: ENGINE_ACTOR,
+        actorType: 'agent',
+        action: 'skill.failed',
+        target: `${skill.key}:${step.name}`,
+        detail: mode === 'simulation' ? { mode } : undefined,
+      });
+    });
+    return { runId, status: 'failed' };
   }
 
-  // Loop evaluation: check deliverable acceptance criteria (best-effort).
-  // Runs OUTSIDE a transaction (blob load + criteria check), then writes
-  // trace + flag in a SHORT transaction. A failure here must never break
-  // the run — the skill completed successfully, the evaluation is additive.
+  const isLast = nextIdx === skill.steps.length - 1;
+  if (isLast) {
+    await finalizeCompleted(orgId, skill, runId, state, mode, claimToken);
+    return { runId, status: 'completed' };
+  }
+
+  await releaseClaim(orgId, runId, claimToken, { status: 'running', stepAttempts: 0 });
+  return { runId, status: 'running' };
+}
+
+async function finalizeCompleted(
+  orgId: string,
+  skill: SkillDef,
+  runId: string,
+  state: Record<string, SkillJson>,
+  mode: SkillRunMode,
+  claimToken: string,
+): Promise<void> {
   if (mode === 'live') {
     try {
       await evaluateDeliverableCriteria(orgId, skill.key, runId, state);
@@ -472,9 +714,19 @@ async function executeFrom(
   }
 
   await withTenant(orgId, async (tx) => {
+    const run = await tx.skillRun.findUnique({ where: { id: runId } });
+    if (run?.status === 'completed') return;
+    // Only the claim holder (or a reclaim after lease expiry) should complete.
+    if (run && run.claimToken && run.claimToken !== claimToken) return;
     await tx.skillRun.update({
       where: { id: runId },
-      data: { status: 'completed', result: asJson(state) },
+      data: {
+        status: 'completed',
+        result: asJson(state),
+        claimToken: null,
+        claimUntil: null,
+        stepAttempts: 0,
+      },
     });
     await logAudit(tx, {
       orgId,
@@ -485,16 +737,10 @@ async function executeFrom(
       detail: mode === 'simulation' ? { mode } : undefined,
     });
   });
-  return { runId, status: 'completed' };
 }
 
 /**
  * DRY-RUN only: record an acting step as SIMULATED — evaluated, never executed.
- * Captures the guardrail/approval verdict (would it require approval? why? which
- * role?) and, if the skill provides a `describeEffect`, a read-only preview of
- * what the effect WOULD do. Its own atomic transaction, like every other step;
- * `describeEffect` is best-effort so a broken preview can never turn a safe
- * dry-run into a failure. Never fires an effect and never creates an approval.
  */
 async function recordSimulatedStep(
   orgId: string,
@@ -507,6 +753,13 @@ async function recordSimulatedStep(
   gate: GateVerdict,
 ): Promise<void> {
   await withTenant(orgId, async (tx) => {
+    const already = await tx.skillStep.findFirst({
+      where: { runId, idx, status: 'done' },
+    });
+    if (already) {
+      state[step.name] = (already.detail ?? {}) as SkillJson;
+      return;
+    }
     let effectPreview: SkillJson | null = null;
     if (step.describeEffect) {
       try {
@@ -518,7 +771,6 @@ async function recordSimulatedStep(
     const detail: SkillJson = {
       simulated: true,
       acts: true,
-      // The heart of the "Probelauf": the SAME gate a live run would face.
       wouldRequireApproval: !gate.cleared,
       gateReason: gate.reason,
       ...(gate.requiredRole ? { wouldRequireRole: gate.requiredRole } : {}),

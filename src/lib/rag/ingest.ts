@@ -6,12 +6,14 @@
 // entry. The embedding column is pgvector's vector type, which Prisma cannot
 // express, so the chunk INSERT is raw SQL — org_id is still set explicitly and
 // RLS WITH CHECK enforces it, exactly like every other tenant write.
-import type { DocumentSource, DocumentVisibility } from '@prisma/client';
+import type { DocumentSource, DocumentVisibility, Role } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { getEmbeddingProvider, EMBEDDING_DIMENSIONS, type EmbeddingProvider } from '../ai';
 import { logAudit } from '../audit';
 import { assertWithinDailyLimit } from '../limits';
+import { ADMIN_ROLES, getMemberRole } from '../policies/admin';
 import { withTenant } from '../tenant';
+import { isUuid } from '../uuid';
 import { chunkText } from './chunking';
 
 /** pgvector accepts its text literal '[x1,x2,…]' cast to ::vector. */
@@ -77,6 +79,22 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
   if (!title) throw new Error('ingestDocument: title is required.');
   if (!text) throw new Error('ingestDocument: text is required.');
 
+  // Re-ingest is admin-only (same authority as delete / visibility change) and
+  // the target id must be a UUID — reject before any embedding spend.
+  if (input.replaceDocumentId !== undefined) {
+    if (!isUuid(input.replaceDocumentId)) {
+      throw new Error('ingestDocument: replaceDocumentId must be a UUID.');
+    }
+    await withTenant(input.orgId, async (tx) => {
+      const role: Role | null = await getMemberRole(tx, input.actorId);
+      if (!role || !ADMIN_ROLES.includes(role)) {
+        throw new Error(
+          `ingestDocument: user ${JSON.stringify(input.actorId)} (role: ${role ?? 'none'}) may not reingest — admin required.`,
+        );
+      }
+    });
+  }
+
   const contents = chunkText(text);
   if (contents.length === 0) throw new Error('ingestDocument: text produced no chunks.');
 
@@ -96,7 +114,7 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
     let document;
     if (input.replaceDocumentId) {
       // Version replacement: same document id, fresh content. RLS scopes the
-      // lookup — a foreign id fails as "not found".
+      // lookup — a foreign id fails as "not found". Admin gate ran above.
       const existing = await tx.document.findUniqueOrThrow({
         where: { id: input.replaceDocumentId },
       });

@@ -2,7 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { withTenant } from '../src/lib/tenant';
-import { createClient, getClient, listClients, updateClient } from '../src/lib/clients';
+import {
+  createClient,
+  getClient,
+  getClientActivity,
+  listClients,
+  updateClient,
+} from '../src/lib/clients';
 import { startRun } from '../src/lib/skills';
 
 const ORG_A = 'ca000000-ca00-4a00-8a00-ca0000000001';
@@ -186,6 +192,12 @@ describe('skill run + clientId', () => {
       tx.skillRun.findUnique({ where: { id: handle.runId } }),
     );
     expect(run!.clientId).toBe(client.id);
+
+    // Client hub activity sees the linked run (tracker surface).
+    const activity = await getClientActivity(ORG_A, client.id);
+    expect(activity).not.toBeNull();
+    expect(activity!.runCount).toBe(1);
+    expect(activity!.recentRuns.map((r) => r.id)).toContain(handle.runId);
   });
 
   it('a run without clientId works unchanged (null)', async () => {
@@ -195,5 +207,16 @@ describe('skill run + clientId', () => {
       tx.skillRun.findUnique({ where: { id: handle.runId } }),
     );
     expect(run!.clientId).toBeNull();
+  });
+
+  it('rejects linking a foreign-tenant clientId (FK / isolation)', async () => {
+    const bClient = await createClient({
+      orgId: ORG_B,
+      actorUserId: 'admin_b',
+      name: 'B Client',
+    });
+    await expect(
+      startRun(ORG_A, 'wissen_zusammenfassen', { frage: 'x' }, { clientId: bClient.id }),
+    ).rejects.toThrow();
   });
 });

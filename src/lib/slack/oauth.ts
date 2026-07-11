@@ -14,6 +14,7 @@
 // route handlers only add session plumbing.
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { encryptString } from '../crypto';
+import { fetchWithTimeout } from '../http-timeout';
 import { createSlackInstallation } from './admin';
 
 export const OAUTH_SCOPES = ['app_mentions:read', 'chat:write', 'commands', 'im:history'];
@@ -76,7 +77,7 @@ async function exchangeViaSlackApi(code: string): Promise<SlackOAuthResult> {
   if (!clientId || !clientSecret) {
     throw new Error('slack oauth: SLACK_CLIENT_ID / SLACK_CLIENT_SECRET are not set.');
   }
-  const res = await fetch('https://slack.com/api/oauth.v2.access', {
+  const res = await fetchWithTimeout('https://slack.com/api/oauth.v2.access', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret }),

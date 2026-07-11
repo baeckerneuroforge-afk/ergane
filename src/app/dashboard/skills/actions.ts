@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { listSkills, startRun, type SkillJson } from '@/lib/skills';
+import { isUuid } from '@/lib/uuid';
 
 /**
  * Start a skill run for the caller's tenant via the EXISTING engine
@@ -95,7 +96,12 @@ export async function startSkillRun(formData: FormData) {
   const mode = formData.get('dryRun') ? 'simulation' : 'live';
 
   const rawClientId = String(formData.get('clientId') ?? '').trim();
-  const clientId = rawClientId || null;
+  // Optional client link: empty = none; non-empty must be a UUID (fail-closed).
+  let clientId: string | null = null;
+  if (rawClientId) {
+    if (!isUuid(rawClientId)) throw new Error('Invalid clientId.');
+    clientId = rawClientId;
+  }
 
   const handle = await startRun(orgId, skill.key, input, { mode, clientId });
 

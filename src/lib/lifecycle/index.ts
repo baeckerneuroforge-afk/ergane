@@ -28,6 +28,7 @@ import { logAudit } from '../audit';
 import { logError } from '../log';
 import { getMemberRole } from '../policies';
 import { prisma } from '../prisma';
+import { getBlobProvider } from '../storage/blob';
 import { withTenant, type Tx } from '../tenant';
 
 const ADMIN_ROLES: Role[] = ['admin', 'owner'];
@@ -223,40 +224,153 @@ export async function runRetentionSweep(): Promise<{
 // Data export (Art. 20)
 // -----------------------------------------------------------------------------
 
+/** Per-table hard cap for exportOrgData. Oversized tenants fail closed with an
+ * explicit error rather than OOM-ing the serverless function or silently
+ * truncating GDPR-relevant data. Raise via a dedicated bulk-export path later. */
+export const EXPORT_MAX_ROWS_PER_TABLE = 10_000;
+
+/** Mutable only for tests — production always uses EXPORT_MAX_ROWS_PER_TABLE. */
+let exportMaxRowsPerTable = EXPORT_MAX_ROWS_PER_TABLE;
+
+/** Test hook: lower/raise the export bound without reloading the module. */
+export function __setExportMaxRowsPerTableForTests(next: number | null): void {
+  exportMaxRowsPerTable = next ?? EXPORT_MAX_ROWS_PER_TABLE;
+}
+
+export function getExportMaxRowsPerTable(): number {
+  return exportMaxRowsPerTable;
+}
+
 export interface ExportOrgDataInput {
   orgId: string;
   actorUserId: string;
 }
 
+/**
+ * Count rows for a table under the current tenant context; throw if over the
+ * export safety bound. Fail-closed (no silent truncation).
+ */
+async function assertExportTableWithinBound(
+  _tx: Tx,
+  tableLabel: string,
+  count: number,
+): Promise<void> {
+  const limit = exportMaxRowsPerTable;
+  if (count > limit) {
+    throw new Error(
+      `exportOrgData: table ${JSON.stringify(tableLabel)} has ${count} rows ` +
+        `(limit ${limit}). Export refused — use a bulk export path.`,
+    );
+  }
+}
+
 /** Full tenant export as a JSON-serializable object. Chunk embeddings are
  * omitted (derived data, not personal data, and huge); chunk text is included
  * via its parent document. Reads run through withTenant — the export can,
- * structurally, only ever contain the caller's own tenant. */
+ * structurally, only ever contain the caller's own tenant.
+ *
+ * Safety: each table is counted first; if any exceeds EXPORT_MAX_ROWS_PER_TABLE
+ * the export throws (fail-closed) instead of loading unbounded rows into memory. */
 export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<string, unknown>> {
   return withTenant(input.orgId, async (tx) => {
     await requireAdmin(tx, input.actorUserId);
 
     // SEQUENTIAL on purpose: an interactive Prisma transaction is one pinned
     // connection — concurrent queries on the same tx client (Promise.all) are
-    // unsupported and can fail under load.
+    // unsupported and can fail under load. Count-then-load per table enforces
+    // the safety bound before any large payload is materialised.
     const organization = await tx.organization.findUnique({ where: { id: input.orgId } });
+
+    const membershipCount = await tx.membership.count();
+    await assertExportTableWithinBound(tx, 'memberships', membershipCount);
     const memberships = await tx.membership.findMany();
+
+    const knowledgeItemCount = await tx.knowledgeItem.count();
+    await assertExportTableWithinBound(tx, 'knowledge_items', knowledgeItemCount);
     const knowledgeItems = await tx.knowledgeItem.findMany();
+
+    const documentCount = await tx.document.count();
+    await assertExportTableWithinBound(tx, 'documents', documentCount);
     const documents = await tx.document.findMany();
+
+    const [{ n: chunkCount }] = await tx.$queryRaw<Array<{ n: bigint }>>`
+      SELECT COUNT(*)::bigint AS n FROM "chunks"
+    `;
+    await assertExportTableWithinBound(tx, 'chunks', Number(chunkCount));
     const chunks = await tx.$queryRaw<
       Array<{ id: string; document_id: string; content: string; ord: number }>
     >`SELECT "id", "document_id", "content", "ord" FROM "chunks" ORDER BY "document_id", "ord"`;
+
+    const chatMessageCount = await tx.chatMessage.count();
+    await assertExportTableWithinBound(tx, 'chat_messages', chatMessageCount);
     const chatMessages = await tx.chatMessage.findMany({ orderBy: { createdAt: 'asc' } });
+
+    const skillRunCount = await tx.skillRun.count();
+    await assertExportTableWithinBound(tx, 'skill_runs', skillRunCount);
     const skillRuns = await tx.skillRun.findMany();
+
+    const skillStepCount = await tx.skillStep.count();
+    await assertExportTableWithinBound(tx, 'skill_steps', skillStepCount);
     const skillSteps = await tx.skillStep.findMany();
+
+    const approvalCount = await tx.approval.count();
+    await assertExportTableWithinBound(tx, 'approvals', approvalCount);
     const approvals = await tx.approval.findMany();
+
+    const approvalPolicyCount = await tx.approvalPolicy.count();
+    await assertExportTableWithinBound(tx, 'approval_policies', approvalPolicyCount);
     const approvalPolicies = await tx.approvalPolicy.findMany();
+
+    const visibilityGrantCount = await tx.visibilityGrant.count();
+    await assertExportTableWithinBound(tx, 'visibility_grants', visibilityGrantCount);
     const visibilityGrants = await tx.visibilityGrant.findMany();
+
+    const slackInstallationCount = await tx.slackInstallation.count();
+    await assertExportTableWithinBound(tx, 'slack_installations', slackInstallationCount);
     const slackInstallations = await tx.slackInstallation.findMany();
+
+    const slackUserLinkCount = await tx.slackUserLink.count();
+    await assertExportTableWithinBound(tx, 'slack_user_links', slackUserLinkCount);
     const slackUserLinks = await tx.slackUserLink.findMany();
+
+    const slackProcessedEventCount = await tx.slackProcessedEvent.count();
+    await assertExportTableWithinBound(tx, 'slack_processed_events', slackProcessedEventCount);
     const slackProcessedEvents = await tx.slackProcessedEvent.findMany();
+
     const orgSettings = await tx.orgSettings.findUnique({ where: { orgId: input.orgId } });
+
+    const chatFeedbackCount = await tx.chatFeedback.count();
+    await assertExportTableWithinBound(tx, 'chat_feedback', chatFeedbackCount);
     const chatFeedback = await tx.chatFeedback.findMany();
+
+    // Clients (PII in notes) + artifacts (metadata only — no blob bytes).
+    const clientCount = await tx.client.count();
+    await assertExportTableWithinBound(tx, 'clients', clientCount);
+    const clients = await tx.client.findMany({ orderBy: { createdAt: 'asc' } });
+
+    const artifactCount = await tx.artifact.count();
+    await assertExportTableWithinBound(tx, 'artifacts', artifactCount);
+    // Metadata + blobKey/ref for portability; binary content is external storage.
+    const artifacts = await tx.artifact.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        clientId: true,
+        runId: true,
+        blobKey: true,
+        contentType: true,
+        sizeBytes: true,
+        version: true,
+        slug: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const auditLogCount = await tx.auditLog.count();
+    await assertExportTableWithinBound(tx, 'audit_log', auditLogCount);
     const auditLog = await tx.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
 
     const data = {
@@ -264,7 +378,8 @@ export async function exportOrgData(input: ExportOrgDataInput): Promise<Record<s
       orgId: input.orgId,
       organization, memberships, knowledgeItems, documents, chunks, chatMessages,
       skillRuns, skillSteps, approvals, approvalPolicies, visibilityGrants,
-      slackInstallations, slackUserLinks, slackProcessedEvents, orgSettings, chatFeedback, auditLog,
+      slackInstallations, slackUserLinks, slackProcessedEvents, orgSettings, chatFeedback,
+      clients, artifacts, auditLog,
     };
 
     await logAudit(tx, {
@@ -363,9 +478,15 @@ export interface DeletionProof {
  * Erase the WHOLE tenant: the organizations row plus every cascade — including
  * the audit trail (via the gated delete_organization() function from 0008).
  * The returned DeletionProof is the only record; file it outside the system.
+ *
+ * Blob cleanup: artifact blob keys are listed under withTenant, then deleted
+ * via BlobProvider OUTSIDE the tenant transaction (network). Best-effort —
+ * a failed blob delete is logged and does not block DB cascade (orphan blobs
+ * can be GC'd later). DB cascade alone would leave private store objects.
  */
 export async function deleteOrganization(input: DeleteOrganizationInput): Promise<DeletionProof> {
-  return withTenant(input.orgId, async (tx) => {
+  // Phase 1 — admin gate, typed name, row counts, collect blob keys (short tx).
+  const prep = await withTenant(input.orgId, async (tx) => {
     await requireAdmin(tx, input.actorUserId);
 
     const org = await tx.organization.findUniqueOrThrow({ where: { id: input.orgId } });
@@ -374,6 +495,10 @@ export async function deleteOrganization(input: DeleteOrganizationInput): Promis
         'deleteOrganization: confirmation name does not match the organization name — aborting.',
       );
     }
+
+    const artifactKeys = (
+      await tx.artifact.findMany({ select: { blobKey: true } })
+    ).map((a) => a.blobKey);
 
     const counts: Record<string, number> = {
       memberships: await tx.membership.count(),
@@ -391,20 +516,43 @@ export async function deleteOrganization(input: DeleteOrganizationInput): Promis
       slackProcessedEvents: await tx.slackProcessedEvent.count(),
       orgSettings: await tx.orgSettings.count(),
       chatFeedback: await tx.chatFeedback.count(),
+      clients: await tx.client.count(),
+      artifacts: await tx.artifact.count(),
       auditLog: await tx.auditLog.count(),
     };
 
+    return { organizationName: org.name, counts, artifactKeys };
+  });
+
+  // Phase 2 — blob deletes outside any tenant tx (network I/O).
+  const blob = getBlobProvider();
+  let blobsDeleted = 0;
+  for (const key of prep.artifactKeys) {
+    try {
+      await blob.delete(key);
+      blobsDeleted += 1;
+    } catch (err) {
+      logError('deleteOrganization: artifact blob delete failed (best-effort)', err, {
+        orgId: input.orgId,
+        blobKey: key,
+      });
+    }
+  }
+
+  // Phase 3 — gated DB cascade (audit trail included).
+  await withTenant(input.orgId, async (tx) => {
+    await requireAdmin(tx, input.actorUserId);
     // Gated erasure: only deletes the org matching app.current_org; permits
     // the audit_log cascade for exactly this transaction. ($executeRaw because
     // the function returns void, which $queryRaw cannot deserialize.)
     await tx.$executeRaw`SELECT delete_organization(${input.orgId}::uuid)`;
-
-    return {
-      orgId: input.orgId,
-      organizationName: org.name,
-      deletedBy: input.actorUserId,
-      deletedAt: new Date().toISOString(),
-      counts,
-    };
   });
+
+  return {
+    orgId: input.orgId,
+    organizationName: prep.organizationName,
+    deletedBy: input.actorUserId,
+    deletedAt: new Date().toISOString(),
+    counts: { ...prep.counts, blobsDeleted },
+  };
 }

@@ -21,10 +21,11 @@ import { LOOP_AUTONOMY_LEVELS, setLoopAutonomy } from '@/lib/loop/settings';
 import type { LoopAutonomy } from '@/lib/loop/settings';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
-import { createClient, updateClient } from '@/lib/clients';
+import { createClient, deleteClient, updateClient } from '@/lib/clients';
 import { deleteOrganization, purgeChatHistory, setChatRetention } from '@/lib/lifecycle';
 import { setValueSettings } from '@/lib/value';
 import { logInfo } from '@/lib/log';
+import { requireUuid } from '@/lib/uuid';
 
 const MODES: ApprovalMode[] = ['always', 'threshold', 'never'];
 const APPROVER_ROLES: Role[] = ['lead', 'admin'];
@@ -287,8 +288,7 @@ export async function addClient(formData: FormData) {
 }
 
 export async function editClient(formData: FormData) {
-  const clientId = String(formData.get('clientId') ?? '').trim();
-  if (!clientId) throw new Error('Client id is required.');
+  const clientId = requireUuid(formData.get('clientId'), 'clientId');
   const name = String(formData.get('clientName') ?? '').trim();
   if (!name) throw new Error('Client name is required.');
   const notes = String(formData.get('clientNotes') ?? '').trim() || null;
@@ -298,6 +298,18 @@ export async function editClient(formData: FormData) {
 
   revalidatePath('/dashboard/settings');
   revalidatePath('/dashboard/skills');
+}
+
+/** Admin-only client erase (PII notes). FKs on runs/artifacts SET NULL. */
+export async function removeClient(formData: FormData) {
+  const clientId = requireUuid(formData.get('clientId'), 'clientId');
+
+  const { orgId, userId } = await requireTenantWithMembership();
+  await deleteClient({ orgId, actorUserId: userId, clientId });
+
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/skills');
+  revalidatePath('/dashboard/clients');
 }
 
 export async function saveOrgLocale(formData: FormData) {

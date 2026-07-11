@@ -49,4 +49,20 @@ export function getChatProvider(): ChatProvider {
   return new FakeChatProvider();
 }
 
+/**
+ * Pure env check: true when chat and/or embeddings would use the deterministic
+ * fake adapters (keys missing). Used by UI banners — never calls vendors.
+ * In production both keys are required; this returns false if both are set.
+ *
+ * Accepts ProcessEnv or a partial key bag (tests). Default reads process.env.
+ */
+export function isUsingFakeAiProviders(
+  env?: NodeJS.ProcessEnv | { ANTHROPIC_API_KEY?: string; VOYAGE_API_KEY?: string },
+): boolean {
+  const source = env ?? process.env;
+  const chatFake = !source.ANTHROPIC_API_KEY?.trim();
+  const embedFake = !source.VOYAGE_API_KEY?.trim();
+  return chatFake || embedFake;
+}
+
 export * from './types';

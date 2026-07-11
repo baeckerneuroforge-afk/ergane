@@ -10,10 +10,6 @@ import { LanguageSwitcher } from './language-switcher';
 
 export async function PublicShell({ children }: { children: React.ReactNode }) {
   const { locale, t } = await getI18n();
-  const legal =
-    locale === 'de'
-      ? { imprint: '/impressum', privacy: '/datenschutz', dpa: '/avv' }
-      : { imprint: '/imprint', privacy: '/privacy', dpa: '/dpa' };
 
   return (
     <div className="public-page">
@@ -33,11 +29,12 @@ export async function PublicShell({ children }: { children: React.ReactNode }) {
       </header>
       <main className="public-main">{children}</main>
       <footer className="public-footer">
-        <span className="muted">© {new Date().getFullYear()} helix.ai</span>
+        <span className="muted">© {new Date().getFullYear()} helix.ai · pilot stage</span>
         <nav className="public-footer-links">
-          <Link href={legal.imprint}>{t.publicShell.imprint}</Link>
-          <Link href={legal.privacy}>{t.publicShell.privacy}</Link>
-          <Link href={legal.dpa}>{t.publicShell.dpa}</Link>
+          {/* Legal pages remain reachable by URL but are not primary nav until
+              firm identity is filled (no yellow placeholders in the pitch path). */}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a>
+          <Link href="/pilot">{locale === 'de' ? 'Pilot' : 'Pilot'}</Link>
         </nav>
       </footer>
     </div>

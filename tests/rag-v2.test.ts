@@ -23,6 +23,7 @@ import {
 
 const ORG_A = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const ORG_B = 'abababab-abab-4bab-8bab-abababababab';
+const ADMIN = 'rv_admin';
 const LEAD = 'rv_lead';
 const MEMBER = 'rv_member';
 
@@ -42,13 +43,15 @@ async function reset() {
 async function seed() {
   await withTenant(ORG_A, async (tx) => {
     await tx.organization.create({ data: { id: ORG_A, clerkOrgId: 'org_rv_a', name: 'RagV2 A' } });
+    await tx.membership.create({ data: { orgId: ORG_A, userId: ADMIN, role: 'admin' } });
     await tx.membership.create({ data: { orgId: ORG_A, userId: LEAD, role: 'lead' } });
     await tx.membership.create({ data: { orgId: ORG_A, userId: MEMBER, role: 'member' } });
     await tx.visibilityGrant.create({ data: { orgId: ORG_A, level: 'confidential', role: 'lead' } });
   });
-  await withTenant(ORG_B, (tx) =>
-    tx.organization.create({ data: { id: ORG_B, clerkOrgId: 'org_rv_b', name: 'RagV2 B' } }),
-  );
+  await withTenant(ORG_B, async (tx) => {
+    await tx.organization.create({ data: { id: ORG_B, clerkOrgId: 'org_rv_b', name: 'RagV2 B' } });
+    await tx.membership.create({ data: { orgId: ORG_B, userId: ADMIN, role: 'admin' } });
+  });
 }
 
 /** Chat provider spy: records every completion request, answers fixed. */
@@ -191,8 +194,9 @@ describe('re-ingest (document versioning)', () => {
       text: 'Hotelübernachtungen werden bis 120 Euro pro Nacht erstattet.',
     });
 
+    // Re-ingest is admin-only (same authority as delete / visibility).
     const v2 = await ingestDocument({
-      orgId: ORG_A, actorId: 'seed', title: 'Reisekosten (v2)', source: 'manual',
+      orgId: ORG_A, actorId: ADMIN, title: 'Reisekosten (v2)', source: 'manual',
       text: 'Hotelübernachtungen werden bis 150 Euro pro Nacht erstattet.',
       replaceDocumentId: documentId,
     });
@@ -214,13 +218,41 @@ describe('re-ingest (document versioning)', () => {
     expect(audit).toHaveLength(1);
   });
 
+  it('rejects non-admin reingest (member cannot replace content)', async () => {
+    const { documentId } = await ingestDocument({
+      orgId: ORG_A, actorId: 'seed', title: 'Policy', source: 'manual',
+      text: 'Originaltext bleibt unangetastet.',
+    });
+    await expect(
+      ingestDocument({
+        orgId: ORG_A, actorId: MEMBER, title: 'Policy hijack', source: 'manual',
+        text: 'Member darf nicht reingestieren.',
+        replaceDocumentId: documentId,
+      }),
+    ).rejects.toThrow(/admin required/);
+    const doc = await withTenant(ORG_A, (tx) =>
+      tx.document.findUniqueOrThrow({ where: { id: documentId } }),
+    );
+    expect(doc.title).toBe('Policy');
+  });
+
+  it('rejects non-UUID replaceDocumentId before any work', async () => {
+    await expect(
+      ingestDocument({
+        orgId: ORG_A, actorId: ADMIN, title: 'x', source: 'manual',
+        text: 'Irgendein Text für den Chunker.',
+        replaceDocumentId: 'not-a-uuid',
+      }),
+    ).rejects.toThrow(/UUID/i);
+  });
+
   it('keeps the existing visibility unless a new one is given', async () => {
     const { documentId } = await ingestDocument({
       orgId: ORG_A, actorId: 'seed', title: 'Vertraulich', source: 'manual',
       visibility: 'confidential', text: 'Geheimer Inhalt Version eins.',
     });
     await ingestDocument({
-      orgId: ORG_A, actorId: 'seed', title: 'Vertraulich', source: 'manual',
+      orgId: ORG_A, actorId: ADMIN, title: 'Vertraulich', source: 'manual',
       text: 'Geheimer Inhalt Version zwei.', replaceDocumentId: documentId,
     });
     const doc = await withTenant(ORG_A, (tx) =>
@@ -235,7 +267,7 @@ describe('re-ingest (document versioning)', () => {
     });
     await expect(
       ingestDocument({
-        orgId: ORG_A, actorId: 'seed', title: 'Hijack', source: 'manual',
+        orgId: ORG_A, actorId: ADMIN, title: 'Hijack', source: 'manual',
         text: 'Übernahme.', replaceDocumentId: bDoc.documentId,
       }),
     ).rejects.toThrow();

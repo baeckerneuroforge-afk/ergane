@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { deleteArtifact, getArtifactContent } from '@/lib/artifacts';
+import { requireUuid } from '@/lib/uuid';
 
 async function requireTenantWithMembership() {
   const ctx = await requireTenant();
@@ -17,8 +18,7 @@ async function requireTenantWithMembership() {
 }
 
 export async function removeArtifact(formData: FormData) {
-  const artifactId = String(formData.get('artifactId') ?? '').trim();
-  if (!artifactId) throw new Error('Artifact id is required.');
+  const artifactId = requireUuid(formData.get('artifactId'), 'artifactId');
 
   const { orgId, userId } = await requireTenantWithMembership();
   await deleteArtifact({ orgId, actorUserId: userId, artifactId });
@@ -27,8 +27,7 @@ export async function removeArtifact(formData: FormData) {
 }
 
 export async function downloadArtifact(formData: FormData): Promise<string> {
-  const artifactId = String(formData.get('artifactId') ?? '').trim();
-  if (!artifactId) throw new Error('Artifact id is required.');
+  const artifactId = requireUuid(formData.get('artifactId'), 'artifactId');
 
   const { orgId } = await requireTenantWithMembership();
   const content = await getArtifactContent(orgId, artifactId);

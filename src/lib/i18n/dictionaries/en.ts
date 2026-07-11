@@ -129,6 +129,12 @@ export const en = {
     flagsWindow: 'in the last 7 days',
     flagsLast: 'Most recent',
     flagsAll: 'All flags →',
+    loopKpisTitle: 'Loop KPIs (7 days)',
+    loopKpiFlags: 'Flags',
+    loopKpiCorrections: 'Corrections',
+    loopKpiLatency: 'Median approval latency',
+    loopKpiProcess: 'Process metrics healthy',
+    loopKpiProcessOf: (ok: number, total: number) => `${ok}/${total}`,
     waitingTitle: 'Waiting for you',
     noWaiting: 'Nothing waiting — all approvals are decided.',
     waitingRun: 'Run',
@@ -157,6 +163,44 @@ export const en = {
   comingSoon: {
     title: 'Coming soon',
     connectors: 'This is where connected tools will be managed — OAuth installs, sync status and configuration. The connector architecture is planned; this view will go live with the first integration.',
+  },
+
+  connectors: {
+    title: 'Connectors',
+    intro:
+      'Tools your company already uses. helix will read (and later write) through a governed connector layer — not live yet.',
+    statusShipped: 'Shipped',
+    statusBuilding: 'In progress',
+    statusPlanned: 'Planned',
+    honestNote:
+      'Honest status: no third-party tool sync is productized yet (except Slack as a second input channel). This page is the roadmap surface, not a fake install grid.',
+    items: {
+      slack: {
+        name: 'Slack',
+        status: 'shipped' as const,
+        blurb: 'Questions, skills, and approvals from Slack — signature-verified, tenant-mapped.',
+      },
+      linear: {
+        name: 'Linear',
+        status: 'building' as const,
+        blurb: 'Read issues into the knowledge base with external_ref dedup (loop source 2).',
+      },
+      github: {
+        name: 'GitHub',
+        status: 'planned' as const,
+        blurb: 'Read PRs/commits as observations for process signals.',
+      },
+      drive: {
+        name: 'Google Drive / Docs',
+        status: 'planned' as const,
+        blurb: 'Ingest shared docs with fail-closed visibility defaults.',
+      },
+      email: {
+        name: 'E-mail (Resend)',
+        status: 'shipped' as const,
+        blurb: 'Outbound mail for quotes/approvals when RESEND_API_KEY is set; otherwise simulated in dev.',
+      },
+    },
   },
 
   flags: {
@@ -383,6 +427,9 @@ export const en = {
       inputJson: 'Input (JSON)',
       clientSelect: 'Client (optional)',
       clientNone: '— none —',
+      clientEmptyHint:
+        'No clients yet — link runs to a client for tracking. Create clients in',
+      clientEmptyLink: 'settings',
     },
   },
 
@@ -394,9 +441,11 @@ export const en = {
     emptyHintSuffix: '— every run appears here with its status and step timeline.',
     startedAt: 'Started at',
     simulation: 'Dry run',
+    colClient: 'Client',
   },
 
   runDetail: {
+    client: 'Client',
     started: 'started',
     stepDone: 'done',
     stepFailed: 'failed',
@@ -689,6 +738,8 @@ export const en = {
     addClient: 'Add client',
     editClient: 'Edit',
     saveClient: 'Save',
+    deleteClient: 'Delete',
+    deleteClientConfirm: 'Delete this client? Notes are erased permanently. Linked runs keep their history with the client unlinked.',
     noClients: 'No clients yet. Add the first one above.',
     valueTitle: 'Value assumptions (value dashboard)',
     valueHint:
@@ -777,6 +828,49 @@ export const en = {
         text: 'Data export (Art. 20), deletion concept with proof, pseudonymization in the audit trail, automatic retention periods. EU database location.',
       },
     ],
+  },
+
+  demoGuidance: {
+    title: 'YC demo path (this org)',
+    intro: 'Ordered walkthrough — stay on this list during a pitch. Isolation only works on allowlisted demo orgs.',
+    footer: 'Offline? Unset AI keys use deterministic fakes — architecture is the same. Full script: docs/yc-demo-runbook.md',
+    steps: {
+      knowledge: {
+        label: 'Knowledge',
+        cta: 'Open knowledge base',
+        hint: 'docs + visibility',
+      },
+      chat: {
+        label: 'Chat with sources',
+        cta: 'Open chat',
+        hint: 'vacation days / travel policy',
+      },
+      skills: {
+        label: 'Start a skill',
+        cta: 'Open skills',
+        hint: 'link client Hanse Logistik if seeded',
+      },
+      approvals: {
+        label: 'Approve',
+        cta: 'Open approvals',
+        hint: 'four-eyes gate',
+      },
+      clients: {
+        label: 'Client tracker',
+        cta: 'Open clients',
+        hint: 'linked runs',
+      },
+      isolation: {
+        label: 'Tenant isolation',
+        cta: 'Live proof',
+        hint: 'cross-tenant blocked by RLS',
+      },
+    },
+  },
+
+  fakeAiBanner: {
+    title: 'Demo / offline AI providers active.',
+    body: 'ANTHROPIC_API_KEY and/or VOYAGE_API_KEY are unset — helix uses deterministic fakes (no network). Architecture and tenant isolation are unchanged. Set both keys for live model answers.',
   },
 
   publicShell: {

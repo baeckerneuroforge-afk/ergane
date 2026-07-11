@@ -464,9 +464,10 @@ export function Footer({ className = "" }: { className?: string }) {
           <FooterCol
             title="Company"
             links={[
-              { href: "/imprint", label: "Imprint" },
-              { href: "/privacy", label: "Privacy" },
-              { href: "/dpa", label: "DPA" },
+              { href: "/pilot", label: "Pilot" },
+              { href: "mailto:pilot@helix.ai", label: "pilot@helix.ai" },
+              // Imprint/privacy/DPA stay at stable URLs for later fill-in —
+              // not linked from primary marketing chrome while placeholders remain.
             ]}
           />
         </div>

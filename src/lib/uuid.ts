@@ -16,6 +16,17 @@ export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
+/**
+ * Parse a form/route entity id: non-empty + strict UUID, fail-closed.
+ * Use at dashboard mutation boundaries before any tenant work.
+ */
+export function requireUuid(value: unknown, field: string): string {
+  const id = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+  if (!id) throw new Error(`${field} is required.`);
+  if (!isUuid(id)) throw new Error(`Invalid ${field}.`);
+  return id;
+}
+
 // Stable namespace for helix.ai org ids (value predates the rebrand — never change it). Generated once; never change it, or every
 // derived org UUID would change. (Itself a valid v4 UUID.)
 const HELIX_ORG_NAMESPACE = 'b3f1c0de-1a2b-4c3d-8e4f-5a6b7c8d9e0f';

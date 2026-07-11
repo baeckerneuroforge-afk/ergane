@@ -4,7 +4,7 @@
 // operation. The German version (/datenschutz) is the authoritative one.
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LegalPlaceholder as P, PublicShell } from '../public-shell';
+import { PublicShell } from '../public-shell';
 
 export const metadata: Metadata = { title: 'Privacy Policy — helix.ai' };
 
@@ -29,9 +29,10 @@ export default function PrivacyPage() {
 
         <h2>1. Controller</h2>
         <p>
-          <P>Company name, address, e-mail of the controller</P>
-          <br />
-          Data protection officer (if appointed): <P>name and contact — otherwise remove this section</P>
+          During the pilot stage the product is operated by Hephaistos Systems
+          (Germany). Formal controller identity (legal entity, address, DPO if
+          appointed) will be published before general availability. Contact:{' '}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a>.
         </p>
 
         <h2>2. What data we process</h2>
@@ -90,7 +91,8 @@ export default function PrivacyPage() {
           You have the rights to access (Art. 15), rectification (Art. 16), erasure
           (Art. 17), restriction (Art. 18), data portability (Art. 20) and objection
           (Art. 21), as well as the right to lodge a complaint with a supervisory
-          authority (Art. 77). Contact <P>privacy@…</P> for any of these.
+          authority (Art. 77). Contact{' '}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a> for any of these.
         </p>
 
         <h2>6. Cookies & tracking</h2>

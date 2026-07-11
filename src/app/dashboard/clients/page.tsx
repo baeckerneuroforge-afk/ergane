@@ -3,6 +3,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { getI18n } from '@/lib/i18n/server';
 import { withTenant } from '@/lib/tenant';
 import { RunStatusChip, formatDateTime } from '../ui';
+import { CLIENTS_PAGE_LIMIT } from './limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,7 @@ export default async function ClientsPage() {
         },
       },
       orderBy: { name: 'asc' },
+      take: CLIENTS_PAGE_LIMIT,
     }),
   );
 

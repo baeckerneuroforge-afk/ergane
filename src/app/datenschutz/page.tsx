@@ -2,7 +2,7 @@
 // vollständig; die markierten Platzhalter (Verantwortlicher, ggf. DSB) MÜSSEN
 // vor echtem Kundenbetrieb befüllt und der Text juristisch geprüft werden.
 import type { Metadata } from 'next';
-import { LegalPlaceholder as P, PublicShell } from '../public-shell';
+import { PublicShell } from '../public-shell';
 
 export const metadata: Metadata = { title: 'Datenschutzerklärung — helix.ai' };
 
@@ -23,9 +23,11 @@ export default function DatenschutzPage() {
 
         <h2>1. Verantwortlicher</h2>
         <p>
-          <P>Firmenname, Anschrift, E-Mail des Verantwortlichen</P>
-          <br />
-          Datenschutzbeauftragter (falls benannt): <P>Name und Kontakt — sonst Abschnitt entfernen</P>
+          In der Pilotphase wird das Produkt von Hephaistos Systems (Deutschland)
+          betrieben. Die vollständige Identität des Verantwortlichen (Firma,
+          Anschrift, ggf. DSB) wird vor dem öffentlichen Produktivbetrieb
+          veröffentlicht. Kontakt:{' '}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a>.
         </p>
 
         <h2>2. Welche Daten wir verarbeiten</h2>
@@ -84,7 +86,8 @@ export default function DatenschutzPage() {
           Sie haben die Rechte auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung
           (Art. 17), Einschränkung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch
           (Art. 21) sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde (Art. 77).
-          Wenden Sie sich dazu an <P>datenschutz@…</P>.
+          Wenden Sie sich dazu an{' '}
+          <a href="mailto:pilot@helix.ai">pilot@helix.ai</a>.
         </p>
 
         <h2>6. Cookies & Tracking</h2>

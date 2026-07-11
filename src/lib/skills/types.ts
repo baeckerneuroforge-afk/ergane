@@ -9,9 +9,10 @@
 //   - A step with `acts: false` (the default) only READS/derives — it may query
 //     tenant data through ctx.tx but must not cause real-world effects.
 //   - A step with `acts: true` HANDELT — it has an (possibly simulated)
-//     external effect. Before the first acting step the engine enforces the
-//     guardrail: if it triggers, the run pauses in `awaiting_approval` and the
-//     acting step does NOT execute until a human approves.
+//     external effect. Before EACH acting step the engine enforces the
+//     guardrail: if it triggers, the run pauses in `awaiting_approval` and that
+//     acting step does NOT execute until a human approves THAT step (checkpoint
+//     binding via approval.step_idx / step_name).
 //   - `handlesMoney: true` marks the whole skill as money-touching: the engine
 //     then refuses to execute ANY acting step without a guardrail verdict —
 //     a money skill without a guardrail fails closed (always needs approval).

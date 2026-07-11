@@ -130,6 +130,12 @@ export const de: Dictionary = {
     flagsWindow: 'in den letzten 7 Tagen',
     flagsLast: 'Zuletzt',
     flagsAll: 'Alle Flags →',
+    loopKpisTitle: 'Loop-KPIs (7 Tage)',
+    loopKpiFlags: 'Flags',
+    loopKpiCorrections: 'Korrekturen',
+    loopKpiLatency: 'Median Freigabe-Latenz',
+    loopKpiProcess: 'Prozess-Metriken im Soll',
+    loopKpiProcessOf: (ok: number, total: number) => `${ok}/${total}`,
     waitingTitle: 'Wartet auf dich',
     noWaiting: 'Nichts offen — alle Freigaben sind entschieden.',
     waitingRun: 'Lauf',
@@ -158,6 +164,44 @@ export const de: Dictionary = {
   comingSoon: {
     title: 'Kommt bald',
     connectors: 'Hier werden angebundene Tools verwaltet — OAuth-Installs, Sync-Status und Konfiguration. Die Konnektor-Architektur ist geplant; diese Ansicht geht mit der ersten Integration live.',
+  },
+
+  connectors: {
+    title: 'Konnektoren',
+    intro:
+      'Tools, die Ihre Firma schon nutzt. helix wird sie lesen (und später schreiben) — über eine governte Konnektor-Schicht. Noch nicht productized.',
+    statusShipped: 'Geliefert',
+    statusBuilding: 'In Arbeit',
+    statusPlanned: 'Geplant',
+    honestNote:
+      'Ehrlich: außer Slack als zweitem Eingang ist noch keine Drittanbieter-Sync im Produkt. Diese Seite ist Roadmap, kein Fake-Install-Grid.',
+    items: {
+      slack: {
+        name: 'Slack',
+        status: 'shipped' as const,
+        blurb: 'Fragen, Skills und Freigaben aus Slack — signaturgeprüft, mandantengemappt.',
+      },
+      linear: {
+        name: 'Linear',
+        status: 'building' as const,
+        blurb: 'Issues in die Wissensbasis mit external_ref-Dedup (Loop-Quelle 2).',
+      },
+      github: {
+        name: 'GitHub',
+        status: 'planned' as const,
+        blurb: 'PRs/Commits als Beobachtungen für Prozess-Signale.',
+      },
+      drive: {
+        name: 'Google Drive / Docs',
+        status: 'planned' as const,
+        blurb: 'Shared Docs ingestieren mit fail-closed Sichtbarkeit.',
+      },
+      email: {
+        name: 'E-Mail (Resend)',
+        status: 'shipped' as const,
+        blurb: 'Ausgehende Mails für Angebote/Freigaben wenn RESEND_API_KEY gesetzt; sonst in Dev simuliert.',
+      },
+    },
   },
 
   flags: {
@@ -385,6 +429,9 @@ export const de: Dictionary = {
       inputJson: 'Input (JSON)',
       clientSelect: 'Kunde (optional)',
       clientNone: '— keiner —',
+      clientEmptyHint:
+        'Noch keine Kunden — verknüpfen Sie Läufe mit einem Kunden. Anlegen unter',
+      clientEmptyLink: 'Einstellungen',
     },
   },
 
@@ -396,9 +443,11 @@ export const de: Dictionary = {
     emptyHintSuffix: '— jeder Lauf erscheint hier mit Status und Schritt-Timeline.',
     startedAt: 'Gestartet am',
     simulation: 'Probelauf',
+    colClient: 'Kunde',
   },
 
   runDetail: {
+    client: 'Kunde',
     started: 'gestartet',
     stepDone: 'erledigt',
     stepFailed: 'fehlgeschlagen',
@@ -686,6 +735,9 @@ export const de: Dictionary = {
     addClient: 'Kunde hinzufügen',
     editClient: 'Bearbeiten',
     saveClient: 'Speichern',
+    deleteClient: 'Löschen',
+    deleteClientConfirm:
+      'Diesen Kunden löschen? Notizen werden unwiderruflich entfernt. Verknüpfte Läufe behalten ihre Historie, der Kunde wird entkoppelt.',
     noClients: 'Noch keine Kunden. Legen Sie den ersten oben an.',
     valueTitle: 'Wert-Annahmen (Wertbeitrag-Dashboard)',
     valueHint:
@@ -774,6 +826,51 @@ export const de: Dictionary = {
         text: 'Datenexport (Art. 20), Löschkonzept mit Nachweis, Pseudonymisierung im Audit-Trail, automatische Aufbewahrungsfristen. EU-Datenbankstandort.',
       },
     ],
+  },
+
+  demoGuidance: {
+    title: 'YC-Demo-Pfad (diese Org)',
+    intro:
+      'Reihenfolge für den Pitch — bei diesem Plan bleiben. Isolation nur auf allowlisted Demo-Orgs.',
+    footer:
+      'Offline? Ohne AI-Keys laufen deterministische Fakes — Architektur gleich. Script: docs/yc-demo-runbook.md',
+    steps: {
+      knowledge: {
+        label: 'Wissen',
+        cta: 'Zur Wissensbasis',
+        hint: 'Dokumente + Sichtbarkeit',
+      },
+      chat: {
+        label: 'Chat mit Quellen',
+        cta: 'Zum Chat',
+        hint: 'Urlaubstage / Reisekosten',
+      },
+      skills: {
+        label: 'Skill starten',
+        cta: 'Zu Skills',
+        hint: 'Kunde Hanse Logistik (Seed)',
+      },
+      approvals: {
+        label: 'Freigeben',
+        cta: 'Zu Freigaben',
+        hint: 'Vier-Augen',
+      },
+      clients: {
+        label: 'Kunden-Tracker',
+        cta: 'Zu Kunden',
+        hint: 'verknüpfte Läufe',
+      },
+      isolation: {
+        label: 'Mandantentrennung',
+        cta: 'Live-Beweis',
+        hint: 'Cross-Tenant blockiert durch RLS',
+      },
+    },
+  },
+
+  fakeAiBanner: {
+    title: 'Demo-/Offline-AI-Provider aktiv.',
+    body: 'ANTHROPIC_API_KEY und/oder VOYAGE_API_KEY fehlen — helix nutzt deterministische Fakes (kein Netz). Architektur und Isolation unverändert. Beide Keys setzen für Live-Modelle.',
   },
 
   publicShell: {
