@@ -4,8 +4,11 @@
 import type { SkillDef } from '../types';
 import { angebotErstellen } from './angebot_erstellen';
 import { belegKontieren } from './beleg_kontieren';
+import { linearKommentar } from './linear_kommentar';
 import { rechnungErstellen } from './rechnung_erstellen';
+import { transkriptZuBriefing } from './transkript_zu_briefing';
 import { transkriptZuFramework } from './transkript_zu_framework';
+import { transkriptZuUseCases } from './transkript_zu_use_cases';
 import { wissenZusammenfassen } from './wissen_zusammenfassen';
 
 const SKILLS: Record<string, SkillDef> = {
@@ -14,6 +17,9 @@ const SKILLS: Record<string, SkillDef> = {
   [angebotErstellen.key]: angebotErstellen,
   [rechnungErstellen.key]: rechnungErstellen,
   [transkriptZuFramework.key]: transkriptZuFramework,
+  [transkriptZuUseCases.key]: transkriptZuUseCases,
+  [transkriptZuBriefing.key]: transkriptZuBriefing,
+  [linearKommentar.key]: linearKommentar,
 };
 
 /** Test-only extras (durable multi-step fixtures). Never listed in listSkills(). */

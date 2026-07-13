@@ -169,12 +169,20 @@ export const de: Dictionary = {
   connectors: {
     title: 'Konnektoren',
     intro:
-      'Tools, die Ihre Firma schon nutzt. helix wird sie lesen (und später schreiben) — über eine governte Konnektor-Schicht. Noch nicht productized.',
+      'Tools, die Ihre Firma schon nutzt. helix liest sie über eine governte Konnektor-Schicht (Dedup, fail-closed Sichtbarkeit, Audit).',
     statusShipped: 'Geliefert',
     statusBuilding: 'In Arbeit',
     statusPlanned: 'Geplant',
     honestNote:
-      'Ehrlich: außer Slack als zweitem Eingang ist noch keine Drittanbieter-Sync im Produkt. Diese Seite ist Roadmap, kein Fake-Install-Grid.',
+      'Slack, Linear, GitHub und Drive (lesend) sind angebunden. Schreibende Aktionen in Tools sind bewusst noch Roadmap (P3).',
+    connectLinear: 'Linear verbinden',
+    connectGithub: 'GitHub verbinden',
+    connectDrive: 'Google Drive verbinden',
+    linearConnected: 'Linear verbunden',
+    githubConnected: 'GitHub verbunden',
+    driveConnected: 'Drive verbunden',
+    linearWorkspace: (id: string) => `Workspace: ${id}`,
+    connectedBanner: 'Konnektor verbunden. Webhooks landen in der Wissensbasis (restricted).',
     items: {
       slack: {
         name: 'Slack',
@@ -183,18 +191,19 @@ export const de: Dictionary = {
       },
       linear: {
         name: 'Linear',
-        status: 'building' as const,
-        blurb: 'Issues in die Wissensbasis mit external_ref-Dedup (Loop-Quelle 2).',
+        status: 'shipped' as const,
+        blurb:
+          'Issues in die Wissensbasis; optional Kommentar-Write via Skill linear_kommentar (bei alter read-only Install neu verbinden; Prod braucht HELIX_LINEAR_WRITE).',
       },
       github: {
         name: 'GitHub',
-        status: 'planned' as const,
-        blurb: 'PRs/Commits als Beobachtungen für Prozess-Signale.',
+        status: 'shipped' as const,
+        blurb: 'Commits/PRs als Code-Dokumente mit Ticket-Referenz-Signalen (Cross-Signals).',
       },
       drive: {
         name: 'Google Drive / Docs',
-        status: 'planned' as const,
-        blurb: 'Shared Docs ingestieren mit fail-closed Sichtbarkeit.',
+        status: 'shipped' as const,
+        blurb: 'Shared Docs (source=doc) mit external_ref-Dedup und restricted Sichtbarkeit.',
       },
       email: {
         name: 'E-Mail (Resend)',
@@ -205,12 +214,23 @@ export const de: Dictionary = {
   },
 
   flags: {
-    // Ehrliche Einordnung: ein Flag ist ein Append-only-Audit-Eintrag, nie mutiert.
-    note: 'Was der Loop gemeldet hat: Akzeptanzkriterien-Verletzungen bei Deliverables und Abweichungen von Prozess-Metriken. Append-only — Einträge werden nie verändert oder gelöscht.',
+    note: 'Was der Loop gemeldet hat: Akzeptanzkriterien, Prozess-Metriken und Tool-Cross-Signals. Arbeitseinträge können quittiert/erledigt werden; Status-Wechsel werden auditiert (Audit bleibt append-only).',
     entryCount: (n: number) => (n === 1 ? '1 Flag' : `${n} Flags`),
     emptyTitle: 'Keine Abweichungen',
     emptyBody:
-      'Der Loop meldet hier, wenn ein Deliverable seine Akzeptanzkriterien verfehlt oder eine Prozess-Metrik vom Soll abweicht. Für diesen Filter wurde nichts geflaggt.',
+      'Der Loop meldet hier, wenn ein Deliverable Kriterien verfehlt, eine Metrik abweicht oder Tool-Arbeit einen Check verletzt. Für diesen Filter wurde nichts geflaggt.',
+    filterAll: 'Alle',
+    statusOpen: 'Offen',
+    statusAcked: 'Quittiert',
+    statusResolved: 'Erledigt',
+    status: 'Status',
+    categoryCol: 'Kategorie',
+    target: 'Ziel',
+    deviations: 'Abweichungen',
+    actions: 'Aktionen',
+    ack: 'Quittieren',
+    resolve: 'Erledigen',
+    reopen: 'Wieder öffnen',
     // Tabellen-Überschriften.
     time: 'Zeit',
     flag: 'Flag',
@@ -388,9 +408,26 @@ export const de: Dictionary = {
 
   skills: {
     intro:
-      'Skills sind deklarierte Abläufe der Engine: lesende Schritte laufen frei, handelnde Schritte stehen hinter Guardrail und menschlicher Freigabe.',
+      'Skills sind deklarierte Abläufe der Engine: lesende Schritte laufen frei, handelnde Schritte stehen hinter Guardrail und menschlicher Freigabe. Katalog ansehen, dann Skill öffnen und starten.',
     acts: 'handelt',
     readsOnly: 'liest nur',
+    openForm: 'Konfigurieren & starten',
+    closeForm: 'Schließen',
+    startedFlash: 'Skill gestartet — Run wird geöffnet…',
+    descriptions: {
+      beleg_kontieren: 'Beleg klassifizieren und Buchung vorbereiten — Geld-Guardrail ab Schwelle.',
+      wissen_zusammenfassen: 'Geprüftes Wissen zu einem Thema mit Quellen zusammenfassen (nur lesen).',
+      angebot_erstellen: 'Kundenangebot als PDF entwerfen und nach Freigabe versenden.',
+      rechnung_erstellen: 'Rechnung aus Positionen erstellen — Freigabe wenn die Summe es verlangt.',
+      transkript_zu_framework:
+        'Strukturiertes Kunden-Framework aus Discovery-Transkripten (immer Freigabe).',
+      transkript_zu_use_cases:
+        'Use Cases aus Transkripten priorisieren und als Deliverable speichern (immer Freigabe).',
+      transkript_zu_briefing:
+        'Kurzes Executive Briefing aus Transkripten für die Geschäftsführung (immer Freigabe).',
+      linear_kommentar:
+        'Kommentar auf ein Linear-Issue nach menschlicher Freigabe — echte Außenwirkung wenn aktiviert.',
+    } as Record<string, string>,
     dryRun: {
       toggle: 'Probelauf — nichts wird ausgeführt',
       hint: 'Alle Schritte und Guardrail-Prüfungen laufen weiterhin; handelnde Schritte werden nur simuliert.',
@@ -421,6 +458,14 @@ export const de: Dictionary = {
       service: 'Leistung',
       servicePlaceholder: 'z. B. Projektunterstützung Q3',
       quoteAmountPlaceholder: 'z. B. 4800,00',
+      topic: 'Thema',
+      topicPlaceholder: 'z. B. Lager-Digitalisierung',
+      focus: 'Fokus (optional)',
+      focusPlaceholder: 'z. B. Pilotstandort Hamburg',
+      linearIssueId: 'Linear Issue-ID (UUID)',
+      linearIssueIdPlaceholder: 'z. B. a1b2c3d4-…',
+      linearCommentBody: 'Kommentar',
+      linearCommentPlaceholder: 'Kommentartext — wird nach Freigabe in Linear gepostet…',
       recipientEmail: 'Empfänger-E-Mail (optional — leer = simulierter Versand)',
       emailPlaceholderQuote: 'z. B. einkauf@kunde.de',
       emailPlaceholderInvoice: 'z. B. buchhaltung@kunde.de',
@@ -444,6 +489,7 @@ export const de: Dictionary = {
     startedAt: 'Gestartet am',
     simulation: 'Probelauf',
     colClient: 'Kunde',
+    retrying: (n: number) => `Retry ${n}`,
   },
 
   runDetail: {
@@ -612,23 +658,34 @@ export const de: Dictionary = {
       save: 'Autonomie-Stufe speichern',
       thresholdsTitle: 'Prozess-Metrik-Schwellen',
       thresholdsHint:
-        'Wogegen der periodische Check prüft. Vorerst nur lesend — eine Abweichung erzeugt ein Flag.',
+        'Wogegen der periodische Check prüft. Admins können Schwellen anpassen; ungültige Felder behalten den vorherigen Wert. Raten als Prozent (z. B. 70 = 70 %).',
       metric: 'Metrik',
       target: 'Sollwert',
       direction: 'Gesund wenn',
       atLeast: '≥ Soll',
       atMost: '≤ Soll',
+      ratePercentHint: 'Als Prozent eingeben (0–100).',
+      saveThresholds: 'Metrik-Schwellen speichern',
       metricNames: {
         success_rate: 'Erfolgsquote',
         approval_rate: 'Freigabe-Quote',
         iteration_rate: 'Iterationen pro Kunde + Skill',
         feedback_negative_rate: 'Negatives Chat-Feedback',
+        open_tickets_without_acceptance: 'Offene Tickets ohne Akzeptanzmarker',
+        stale_open_tickets: 'Veraltete offene Tickets',
+        commits_without_ticket: 'Commits/PRs ohne Ticket-Ref',
+        tickets_done_without_commit: 'Erledigte Tickets ohne Commit',
       } as Record<string, string>,
-      criteriaTitle: 'Aktive Akzeptanzkriterien',
+      criteriaTitle: 'Akzeptanzkriterien',
       criteriaHint:
-        'Wogegen jedes fertige Deliverable geprüft wird. Vorerst nur lesend — eine Verletzung erzeugt ein Flag.',
+        'Numerische Schwellen für Deliverable-Prüfungen (min. Use Cases, min. Länge). Andere Kriterien bleiben strukturell. Änderungen werden auditiert.',
       criteriaType: (type: string) => `Typ: ${type}`,
       criterion: 'Kriterium',
+      frameworkMinUseCases: 'Framework: min. Use Cases',
+      frameworkMinLength: 'Framework: min. Länge (Zeichen)',
+      useCasesMinItems: 'Use Cases: min. Anzahl',
+      useCasesMinLength: 'Use Cases: min. Länge (Zeichen)',
+      saveCriteria: 'Kriterien-Schwellen speichern',
     },
     governance: {
       presetsTitle: 'Branchen-Presets',
@@ -905,5 +962,14 @@ export const de: Dictionary = {
     wissen_zusammenfassen: 'Wissen zusammenfassen',
     angebot_erstellen: 'Kundenangebot erstellen und versenden',
     rechnung_erstellen: 'Rechnung erstellen und buchen',
+    transkript_zu_framework: 'Framework aus Transkripten entwerfen',
+    transkript_zu_use_cases: 'Use Cases aus Transkripten priorisieren',
+    transkript_zu_briefing: 'Executive Briefing aus Transkripten',
+    linear_kommentar: 'Linear-Kommentar senden',
   } as Record<string, string>,
+
+  flash: {
+    success: 'Gespeichert.',
+    error: 'Etwas ist schiefgelaufen.',
+  },
 };

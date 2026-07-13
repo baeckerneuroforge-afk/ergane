@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { listSkills, startRun, type SkillJson } from '@/lib/skills';
+import { assertAuthBurstLimit } from '@/lib/slack/ratelimit';
 import { isUuid } from '@/lib/uuid';
 
 /**
@@ -68,6 +69,21 @@ export async function startSkillRun(formData: FormData) {
     });
     const email = String(formData.get('email') ?? '').trim();
     input = { kunde, positionen, ...(email ? { email } : {}) };
+  } else if (
+    skill.key === 'transkript_zu_framework' ||
+    skill.key === 'transkript_zu_use_cases' ||
+    skill.key === 'transkript_zu_briefing'
+  ) {
+    const thema = String(formData.get('thema') ?? '').trim();
+    if (!thema) throw new Error('Topic is required.');
+    const fokus = String(formData.get('fokus') ?? '').trim();
+    input = { thema, ...(fokus ? { fokus } : {}) };
+  } else if (skill.key === 'linear_kommentar') {
+    const issueId = String(formData.get('issueId') ?? '').trim();
+    const body = String(formData.get('body') ?? '').trim();
+    if (!issueId) throw new Error('Linear issue id is required.');
+    if (!body) throw new Error('Comment body is required.');
+    input = { issueId, body };
   } else {
     // Generic fallback for future catalog skills: validated JSON input.
     const raw = String(formData.get('inputJson') ?? '{}');
@@ -84,6 +100,8 @@ export async function startSkillRun(formData: FormData) {
   }
 
   const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
+  // Burst backstop before engine work / daily run limits inside startRun.
+  assertAuthBurstLimit('skill-start', orgId, userId);
   await ensureOrgAndMembership({ clerkOrgId, name: orgSlug ?? clerkOrgId, userId, role });
 
   // Rolle des Auslösers aus der VERIFIZIERTEN Session in den Input spiegeln —

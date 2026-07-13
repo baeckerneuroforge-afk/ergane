@@ -5,6 +5,7 @@ import { requireTenant } from '@/lib/auth-context';
 import { enforceChatRetention } from '@/lib/lifecycle';
 import { answerQuestion, loadChatHistory, submitChatFeedback } from '@/lib/rag';
 import { deferWork } from '@/lib/slack/defer';
+import { assertAuthBurstLimit } from '@/lib/slack/ratelimit';
 import { requireUuid } from '@/lib/uuid';
 
 /**
@@ -21,6 +22,9 @@ export async function askQuestion(formData: FormData) {
 
   // The asker's role gates which knowledge is retrievable (disclosure policy).
   const { orgId, userId, role } = await requireTenant();
+  // Burst backstop (per org+user) before embeddings/LLM spend; daily limits live
+  // inside answerQuestion via assertWithinDailyLimit.
+  assertAuthBurstLimit('chat', orgId, userId);
   // Multi-turn: prior turns of THIS user only (per-actor history — see 0010).
   const history = await loadChatHistory(orgId, userId);
   await answerQuestion({ orgId, actorId: userId, question, role, history });

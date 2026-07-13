@@ -16,6 +16,8 @@
 //   - `handlesMoney: true` marks the whole skill as money-touching: the engine
 //     then refuses to execute ANY acting step without a guardrail verdict —
 //     a money skill without a guardrail fails closed (always needs approval).
+//   - `requiresHumanApproval: true` (P3-A): irreversible external writes / generative
+//     deliverables cannot use policy mode 'never' — same failsafe shape as money.
 import type { Tx } from '../tenant';
 
 /** JSON-serializable detail/state payloads (stored in jsonb columns). */
@@ -106,6 +108,12 @@ export interface SkillDef {
    * engine fails closed and always demands approval.
    */
   handlesMoney: boolean;
+  /**
+   * When true, policy mode 'never' is ignored (same failsafe as handlesMoney).
+   * Use for irreversible external writes (Linear comments) and generative
+   * deliverables that must always pause for a human.
+   */
+  requiresHumanApproval?: boolean;
   /** Evaluated BEFORE the first acting step. Pure function of the input. */
   guardrail?: (input: SkillJson) => GuardrailResult;
   /**

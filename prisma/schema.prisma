@@ -65,6 +65,12 @@ enum DocumentSource {
   upload
   manual
   transcript
+  /// Tool-ingested issue/ticket (e.g. Linear).
+  ticket
+  /// Tool-ingested code change (e.g. GitHub commit/PR).
+  code
+  /// Tool-ingested document (e.g. Google Doc).
+  doc
 
   @@map("document_source")
 }
@@ -138,11 +144,87 @@ model Organization {
   slackInstallations SlackInstallation[]
   slackUserLinks     SlackUserLink[]
   slackProcessedEvents SlackProcessedEvent[]
+  connectorInstallations  ConnectorInstallation[]
+  connectorProcessedEvents ConnectorProcessedEvent[]
   settings             OrgSettings?
   chatFeedback         ChatFeedback[]
   artifacts            Artifact[]
+  loopFlags            LoopFlag[]
 
   @@map("organizations")
+}
+
+/// Mutable flag work-item (P2-C). Append-only audit history stays in audit_log;
+/// this row carries open/acked/resolved status only. RLS ENABLE + FORCE.
+enum LoopFlagStatus {
+  open
+  acked
+  resolved
+
+  @@map("loop_flag_status")
+}
+
+model LoopFlag {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String         @map("org_id") @db.Uuid
+  status     LoopFlagStatus @default(open)
+  action     String
+  target     String?
+  category   String         @default("other")
+  severity   String         @default("warning")
+  type       String?
+  detail     Json?
+  auditId    String?        @map("audit_id") @db.Uuid
+  ackedAt    DateTime?      @map("acked_at") @db.Timestamptz(6)
+  ackedBy    String?        @map("acked_by")
+  resolvedAt DateTime?      @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy String?        @map("resolved_by")
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([orgId, status])
+  @@index([orgId, target])
+  @@map("loop_flags")
+}
+
+/// Generic third-party connector install (tenant-scoped). RLS ENABLE + FORCE.
+/// provider + external_id is globally unique (one workspace → one org).
+/// (org_id, provider) unique → one install per provider per org.
+/// access_token_ref is enc:… or env:… — never the raw secret.
+model ConnectorInstallation {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  provider       String
+  externalId     String   @map("external_id")
+  accessTokenRef String?  @map("access_token_ref")
+  meta           Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@unique([orgId, provider])
+  @@index([orgId])
+  @@map("connector_installations")
+}
+
+/// Idempotency claims for connector webhooks (tenant-scoped). RLS ENABLE + FORCE.
+model ConnectorProcessedEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  provider  String
+  eventKey  String   @map("event_key")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider, eventKey])
+  @@index([orgId])
+  @@map("connector_processed_events")
 }
 
 /// One Slack workspace (team) mapped to EXACTLY ONE org (tenant-scoped).
@@ -206,6 +288,12 @@ model OrgSettings {
   // Loop autonomy level (Schritt D). Default 'report' = unchanged (flag + notify).
   // Admin-editable via setLoopAutonomy, audited as 'policy.changed'.
   loopAutonomy      LoopAutonomy @default(report) @map("loop_autonomy")
+  // Optional per-metric threshold overrides (P1-B). Keys = LoopMetricKey, values numbers.
+  // NULL / missing key ⇒ code default in src/lib/loop/metrics.ts.
+  loopMetricThresholds   Json? @map("loop_metric_thresholds")
+  // Optional criteria numeric overrides keyed by deliverable type, e.g.
+  // { "framework": { "min_use_cases": 5 }, "use_cases": { "min_length": 400 } }.
+  loopCriteriaOverrides  Json? @map("loop_criteria_overrides")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -426,6 +514,11 @@ model Document {
   sourceFormat String?          @map("source_format")
   pageCount    Int?             @map("page_count")
   wordCount    Int?             @map("word_count")
+  /// Stable external identity for tool-ingested docs (e.g. linear:issue:uuid).
+  /// Unique per org when set — enables re-ingest upsert / dedup.
+  externalRef  String?          @map("external_ref")
+  /// Structured tool fields for deterministic loop checks (dueDate, state, …).
+  sourceMeta   Json?            @map("source_meta")
   createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

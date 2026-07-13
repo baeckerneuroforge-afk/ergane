@@ -1,5 +1,5 @@
 export { chunkText } from './chunking';
-export { ingestDocument } from './ingest';
+export { ingestDocument, resolveIngestVisibility } from './ingest';
 export type { IngestDocumentInput, IngestDocumentResult } from './ingest';
 export { retrieve, retrieveWithTrace } from './retrieve';
 export type { RetrievedChunk, RetrieveInput, RetrieveWithTraceResult } from './retrieve';

@@ -6,7 +6,9 @@
 import type { DocumentVisibility, Role } from '@prisma/client';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { Suspense } from 'react';
 import { requireTenant } from '@/lib/auth-context';
+import { FlashBanner } from '../flash';
 import { LOCALES, isLocale, type Dictionary } from '@/lib/i18n';
 import { setUiLocale } from '@/lib/i18n/actions';
 import { getI18n } from '@/lib/i18n/server';
@@ -19,6 +21,12 @@ import { DEFAULT_LOOP_AUTONOMY, LOOP_AUTONOMY_LEVELS, shouldAutoStart } from '@/
 import { MAX_AUTO_CORRECTIONS_PER_DAY } from '@/lib/loop/auto-correct';
 import { METRIC_THRESHOLDS } from '@/lib/loop/metrics';
 import { frameworkCriteria } from '@/lib/loop/criteria/framework';
+import { useCasesCriteria } from '@/lib/loop/criteria/use_cases';
+import {
+  parseCriteriaOverrides,
+  parseMetricThresholdOverrides,
+  resolveMetricThreshold,
+} from '@/lib/loop/thresholds';
 import {
   addClient,
   editClient,
@@ -31,6 +39,8 @@ import {
   saveChatRetention,
   saveCompanyProfile,
   saveLoopAutonomy,
+  saveLoopCriteriaOverrides,
+  saveLoopMetricThresholds,
   saveOrgLocale,
   saveValueSettings,
   removeSlackUserLink,
@@ -119,18 +129,23 @@ export default async function SettingsPage({
   const rawOrgLocale = orgSettings?.locale;
   const orgLocale = isLocale(rawOrgLocale) ? rawOrgLocale : 'en';
 
-  // Loop tab: current autonomy level + read-only thresholds. Rate metrics
-  // (0..1) show as a percentage; count metrics (e.g. iteration_rate) show as a
-  // plain number — decided by the threshold magnitude, which is <= 1 for rates.
+  // Loop tab: autonomy + editable metric thresholds / criteria overrides.
   const loopAutonomy = orgSettings?.loopAutonomy ?? DEFAULT_LOOP_AUTONOMY;
+  const metricOverrides = parseMetricThresholdOverrides(orgSettings?.loopMetricThresholds);
+  const criteriaOverrides = parseCriteriaOverrides(orgSettings?.loopCriteriaOverrides);
   const loopMetricRows = (
     Object.keys(METRIC_THRESHOLDS) as Array<keyof typeof METRIC_THRESHOLDS>
   ).map((key) => {
-    const { threshold, direction } = METRIC_THRESHOLDS[key];
-    const isRate = threshold <= 1;
+    const { threshold, direction } = resolveMetricThreshold(key, METRIC_THRESHOLDS, metricOverrides);
+    const defaultThr = METRIC_THRESHOLDS[key].threshold;
+    const isRate = defaultThr <= 1;
     return {
       key,
       direction,
+      threshold,
+      isRate,
+      // Form shows rates as percent for human editing.
+      formValue: isRate ? Math.round(threshold * 100) : threshold,
       targetLabel: isRate ? `${Math.round(threshold * 100)}%` : String(threshold),
     };
   });
@@ -144,6 +159,9 @@ export default async function SettingsPage({
       <p className="page-intro">
         {s.intro} <Link href="/dashboard/audit">{s.introAuditLink}</Link>.
       </p>
+      <Suspense fallback={null}>
+        <FlashBanner successLabel={t.flash.success} errorLabel={t.flash.error} />
+      </Suspense>
 
       <nav className="tabs" aria-label={s.tabsAria}>
         {TAB_KEYS.map((key) => (
@@ -854,39 +872,103 @@ export default async function SettingsPage({
             <p className="muted" style={{ padding: '0 1.25rem' }}>
               {s.loop.thresholdsHint}
             </p>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>{s.loop.metric}</th>
-                  <th>{s.loop.target}</th>
-                  <th>{s.loop.direction}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loopMetricRows.map((m) => (
-                  <tr key={m.key}>
-                    <td>
-                      <strong>{s.loop.metricNames[m.key] ?? m.key}</strong>
-                      <div className="row-meta mono">{m.key}</div>
-                    </td>
-                    <td className="mono">{m.targetLabel}</td>
-                    <td className="row-meta">
-                      {m.direction === 'atLeast' ? s.loop.atLeast : s.loop.atMost}
-                    </td>
+            <form action={saveLoopMetricThresholds}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{s.loop.metric}</th>
+                    <th>{s.loop.target}</th>
+                    <th>{s.loop.direction}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {loopMetricRows.map((m) => (
+                    <tr key={m.key}>
+                      <td>
+                        <strong>{s.loop.metricNames[m.key] ?? m.key}</strong>
+                        <div className="row-meta mono">{m.key}</div>
+                        {m.isRate ? (
+                          <div className="row-meta">{s.loop.ratePercentHint}</div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <input
+                          name={`metric_${m.key}`}
+                          type="number"
+                          step={m.isRate ? '1' : '0.1'}
+                          min="0"
+                          defaultValue={m.formValue}
+                          style={{ width: '6rem' }}
+                          aria-label={s.loop.metricNames[m.key] ?? m.key}
+                        />
+                      </td>
+                      <td className="row-meta">
+                        {m.direction === 'atLeast' ? s.loop.atLeast : s.loop.atMost}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ padding: '0.75rem 1.25rem 1.25rem' }}>
+                <button type="submit" className="btn btn--primary">
+                  {s.loop.saveThresholds}
+                </button>
+              </div>
+            </form>
           </section>
 
           <section className="card card--table">
             <div className="card-title">
               <h2>{s.loop.criteriaTitle}</h2>
-              <span className="row-meta">{s.loop.criteriaType(frameworkCriteria.type)}</span>
             </div>
             <p className="muted" style={{ padding: '0 1.25rem' }}>
               {s.loop.criteriaHint}
             </p>
+            <form action={saveLoopCriteriaOverrides}>
+              <div style={{ padding: '0 1.25rem 1rem' }}>
+                <h3 style={{ fontSize: '0.95rem' }}>{s.loop.criteriaType(frameworkCriteria.type)}</h3>
+                <label htmlFor="framework_min_use_cases">{s.loop.frameworkMinUseCases}</label>
+                <input
+                  id="framework_min_use_cases"
+                  name="framework_min_use_cases"
+                  type="number"
+                  min="0"
+                  defaultValue={criteriaOverrides.framework?.min_use_cases ?? 3}
+                />
+                <label htmlFor="framework_min_length">{s.loop.frameworkMinLength}</label>
+                <input
+                  id="framework_min_length"
+                  name="framework_min_length"
+                  type="number"
+                  min="0"
+                  defaultValue={criteriaOverrides.framework?.min_length ?? 500}
+                />
+                <h3 style={{ fontSize: '0.95rem', marginTop: '1rem' }}>
+                  {s.loop.criteriaType(useCasesCriteria.type)}
+                </h3>
+                <label htmlFor="use_cases_min_use_cases">{s.loop.useCasesMinItems}</label>
+                <input
+                  id="use_cases_min_use_cases"
+                  name="use_cases_min_use_cases"
+                  type="number"
+                  min="0"
+                  defaultValue={criteriaOverrides.use_cases?.min_use_cases ?? 3}
+                />
+                <label htmlFor="use_cases_min_length">{s.loop.useCasesMinLength}</label>
+                <input
+                  id="use_cases_min_length"
+                  name="use_cases_min_length"
+                  type="number"
+                  min="0"
+                  defaultValue={criteriaOverrides.use_cases?.min_length ?? 300}
+                />
+              </div>
+              <div style={{ padding: '0 1.25rem 1.25rem' }}>
+                <button type="submit" className="btn btn--primary">
+                  {s.loop.saveCriteria}
+                </button>
+              </div>
+            </form>
             <table className="table">
               <thead>
                 <tr>
@@ -894,8 +976,8 @@ export default async function SettingsPage({
                 </tr>
               </thead>
               <tbody>
-                {frameworkCriteria.criteria.map((c) => (
-                  <tr key={c.key}>
+                {[...frameworkCriteria.criteria, ...useCasesCriteria.criteria].map((c) => (
+                  <tr key={`${c.key}-${c.label}`}>
                     <td>
                       <strong>{c.label}</strong>
                       <div className="row-meta mono">{c.key}</div>

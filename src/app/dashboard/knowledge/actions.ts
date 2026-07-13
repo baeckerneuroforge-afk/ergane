@@ -9,6 +9,7 @@ import { ExtractionError, MAX_FILE_BYTES, extractText } from '@/lib/ingest/extra
 import { deleteDocument } from '@/lib/lifecycle';
 import { ingestDocument } from '@/lib/rag';
 import { logError } from '@/lib/log';
+import { assertAuthBurstLimit, AUTH_BURST_ERROR } from '@/lib/slack/ratelimit';
 import { isUuid, requireUuid } from '@/lib/uuid';
 
 const MAX_UPLOAD_BYTES = 1_000_000; // 1 MB of plain text is plenty for now.
@@ -39,6 +40,7 @@ export async function addDocument(formData: FormData) {
   if (!visibility) throw new Error('Invalid visibility.');
 
   const { orgId, userId } = await requireTenant();
+  assertAuthBurstLimit('upload', orgId, userId);
   await ingestDocument({ orgId, actorId: userId, title, source, text, visibility });
 
   revalidatePath('/dashboard/knowledge');
@@ -96,6 +98,7 @@ export async function ingestUpload(formData: FormData): Promise<UploadFileResult
       String(formData.get('title') ?? '').trim() || fileName.replace(/\.[^.]+$/, '');
 
     const { orgId, userId } = await requireTenant();
+    assertAuthBurstLimit('upload', orgId, userId);
     const { chunkCount } = await ingestDocument({
       orgId,
       actorId: userId,
@@ -116,13 +119,16 @@ export async function ingestUpload(formData: FormData): Promise<UploadFileResult
       wordCount: meta.wordCount,
     };
   } catch (err) {
-    // ExtractionError carries a user-readable message; anything else
-    // gets a generic one (no stack traces to the client).
+    // ExtractionError / burst limit: user-readable; anything else generic.
     const message =
       err instanceof ExtractionError
         ? err.message
-        : 'Ingestion failed — please try again.';
-    if (!(err instanceof ExtractionError)) logError('ingestUpload failed', err);
+        : err instanceof Error && err.message === AUTH_BURST_ERROR
+          ? AUTH_BURST_ERROR
+          : 'Ingestion failed — please try again.';
+    if (!(err instanceof ExtractionError) && !(err instanceof Error && err.message === AUTH_BURST_ERROR)) {
+      logError('ingestUpload failed', err);
+    }
     return { fileName, ok: false, error: message };
   }
 }
@@ -157,6 +163,7 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
 
     // Mirror membership first so ingestDocument's admin gate reads a live role.
     const { orgId, userId, clerkOrgId, orgSlug, role } = await requireTenant();
+    assertAuthBurstLimit('upload', orgId, userId);
     await ensureOrgAndMembership({ clerkOrgId, name: orgSlug ?? clerkOrgId, userId, role });
     // Admin-only (same as delete/visibility) — enforced inside ingestDocument
     // on the replaceDocumentId path before any embedding spend.
@@ -176,10 +183,17 @@ export async function reingestUpload(formData: FormData): Promise<UploadFileResu
     const message =
       err instanceof ExtractionError
         ? err.message
-        : err instanceof Error && /admin required/i.test(err.message)
-          ? 'Admin required to re-ingest documents.'
-          : 'New version failed — please try again.';
-    if (!(err instanceof ExtractionError)) logError('reingestUpload failed', err);
+        : err instanceof Error && err.message === AUTH_BURST_ERROR
+          ? AUTH_BURST_ERROR
+          : err instanceof Error && /admin required/i.test(err.message)
+            ? 'Admin required to re-ingest documents.'
+            : 'New version failed — please try again.';
+    if (
+      !(err instanceof ExtractionError) &&
+      !(err instanceof Error && err.message === AUTH_BURST_ERROR)
+    ) {
+      logError('reingestUpload failed', err);
+    }
     return { fileName: file.name, ok: false, error: message };
   }
 }

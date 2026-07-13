@@ -2,7 +2,8 @@
 //
 // Flow: an ADMIN clicks "Mit Slack verbinden" in the settings →
 // GET /api/slack/oauth/start builds the authorize URL with a SIGNED state
-// (orgId + expiry, HMAC with SLACK_SIGNING_SECRET — stateless CSRF binding) →
+// (orgId + expiry, HMAC with SLACK_OAUTH_STATE_SECRET — stateless CSRF
+// binding; falls back to SLACK_SIGNING_SECRET only for non-breaking deploys) →
 // Slack redirects back to GET /api/slack/oauth/callback?code&state → the
 // callback verifies the Clerk session AND the state, exchanges the code
 // (oauth.v2.access), ENCRYPTS the bot token (AES-GCM, SLACK_TOKEN_ENC_KEY)
@@ -21,10 +22,21 @@ export const OAUTH_SCOPES = ['app_mentions:read', 'chat:write', 'commands', 'im:
 
 const STATE_TTL_SECONDS = 10 * 60;
 
-function stateSecret(): string {
-  const secret = process.env.SLACK_SIGNING_SECRET;
-  if (!secret) throw new Error('slack oauth: SLACK_SIGNING_SECRET is not set.');
-  return secret;
+/**
+ * Prefer a dedicated OAuth-state secret so request-signing material
+ * (SLACK_SIGNING_SECRET) is not reused for CSRF state. Fallback keeps existing
+ * deploys working until SLACK_OAUTH_STATE_SECRET is set.
+ */
+export function stateSecret(): string {
+  const dedicated = process.env.SLACK_OAUTH_STATE_SECRET?.trim();
+  if (dedicated) return dedicated;
+  const fallback = process.env.SLACK_SIGNING_SECRET?.trim();
+  if (!fallback) {
+    throw new Error(
+      'slack oauth: SLACK_OAUTH_STATE_SECRET (preferred) or SLACK_SIGNING_SECRET is not set.',
+    );
+  }
+  return fallback;
 }
 
 function signState(orgId: string, expires: number): string {

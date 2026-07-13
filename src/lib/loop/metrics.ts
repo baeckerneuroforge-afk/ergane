@@ -19,6 +19,15 @@
 
 import { computeValueStats } from '../value';
 import type { Tx } from '../tenant';
+import {
+  parseMetricThresholdOverrides,
+  resolveMetricThreshold,
+  type MetricThresholdMap,
+} from './thresholds';
+
+function thr(key: LoopMetricKey, overrides: MetricThresholdMap) {
+  return resolveMetricThreshold(key, METRIC_THRESHOLDS, overrides);
+}
 
 /** Which side of the threshold counts as healthy. */
 export type MetricDirection = 'atLeast' | 'atMost';
@@ -28,7 +37,15 @@ export type LoopMetricKey =
   | 'success_rate'
   | 'approval_rate'
   | 'iteration_rate'
-  | 'feedback_negative_rate';
+  | 'feedback_negative_rate'
+  /** Share of open tickets (source=ticket) without AC markers in source_meta/title. */
+  | 'open_tickets_without_acceptance'
+  /** Share of open tickets with lastActivity older than stale threshold. */
+  | 'stale_open_tickets'
+  /** Share of code docs without a ticket reference in message/meta. */
+  | 'commits_without_ticket'
+  /** Share of done tickets with no code document referencing their identifier. */
+  | 'tickets_done_without_commit';
 
 export interface LoopMetric {
   key: LoopMetricKey;
@@ -74,11 +91,37 @@ export const METRIC_THRESHOLDS: Record<
   approval_rate: { threshold: 0.6, direction: 'atLeast' },
   iteration_rate: { threshold: 3, direction: 'atMost' },
   feedback_negative_rate: { threshold: 0.15, direction: 'atMost' },
+  // Conservative: flag only when a large share of open tickets lack AC / are stale.
+  open_tickets_without_acceptance: { threshold: 0.5, direction: 'atMost' },
+  stale_open_tickets: { threshold: 0.4, direction: 'atMost' },
+  // Conservative: flag only when a large share of code lacks ticket links.
+  commits_without_ticket: { threshold: 0.5, direction: 'atMost' },
+  tickets_done_without_commit: { threshold: 0.5, direction: 'atMost' },
 };
+
+/** Days without activity for stale_open_tickets metric (aligned with ticket criteria). */
+export const STALE_OPEN_TICKET_DAYS = 14;
+
+const AC_MARKERS_SQL = [
+  '%acceptance%criteria%',
+  '%AC:%',
+  '%Akzeptanzkriterien%',
+];
 
 function judge(value: number | null, threshold: number, direction: MetricDirection): boolean {
   if (value == null) return true; // no data → nothing to flag
   return direction === 'atLeast' ? value >= threshold : value <= threshold;
+}
+
+/**
+ * Minimum sample size before rate metrics can fail. n=1 ⇒ 100% rates would
+ * false-alarm young orgs (review finding: near-empty false alarms).
+ */
+export const MIN_METRIC_SAMPLES = 3;
+
+function rateOrNull(numerator: number, total: number): number | null {
+  if (total < MIN_METRIC_SAMPLES) return null;
+  return total > 0 ? numerator / total : null;
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
@@ -91,8 +134,13 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 // -----------------------------------------------------------------------------
 
 /** success_rate: completed / (completed + rejected + failed) live runs. */
-async function successRate(tx: Tx, orgId: string, since: Date): Promise<LoopMetric> {
-  const { threshold, direction } = METRIC_THRESHOLDS.success_rate;
+async function successRate(
+  tx: Tx,
+  orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('success_rate', overrides);
   const stats = await computeValueStats(tx, orgId, { since });
   const value = stats.successRate; // null while nothing is decided
   const decided = stats.completedRuns + stats.rejectedOrFailedRuns;
@@ -114,8 +162,13 @@ async function successRate(tx: Tx, orgId: string, since: Date): Promise<LoopMetr
 }
 
 /** approval_rate: approved / (approved + rejected) from the audit trail. */
-async function approvalRate(tx: Tx, orgId: string, since: Date): Promise<LoopMetric> {
-  const { threshold, direction } = METRIC_THRESHOLDS.approval_rate;
+async function approvalRate(
+  tx: Tx,
+  orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('approval_rate', overrides);
   // Sequential counts on the pinned tx connection.
   const approved = await tx.auditLog.count({
     where: { action: 'approval.approved', createdAt: { gte: since } },
@@ -148,8 +201,13 @@ async function approvalRate(tx: Tx, orgId: string, since: Date): Promise<LoopMet
  * many times signals a quality problem. We report the max group size; healthy
  * is ≤ 3. Only client-attributed live runs are grouped (clientId NOT NULL).
  */
-async function iterationRate(tx: Tx, orgId: string, since: Date): Promise<LoopMetric> {
-  const { threshold, direction } = METRIC_THRESHOLDS.iteration_rate;
+async function iterationRate(
+  tx: Tx,
+  orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('iteration_rate', overrides);
   const runs = await tx.skillRun.findMany({
     where: { mode: 'live', clientId: { not: null }, createdAt: { gte: since } },
     select: { skillKey: true, clientId: true },
@@ -188,8 +246,13 @@ async function iterationRate(tx: Tx, orgId: string, since: Date): Promise<LoopMe
 }
 
 /** feedback_negative_rate: 👎 / (👍 + 👎) over chat_feedback in the window. */
-async function feedbackNegativeRate(tx: Tx, orgId: string, since: Date): Promise<LoopMetric> {
-  const { threshold, direction } = METRIC_THRESHOLDS.feedback_negative_rate;
+async function feedbackNegativeRate(
+  tx: Tx,
+  orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('feedback_negative_rate', overrides);
   const down = await tx.chatFeedback.count({
     where: { verdict: 'down', createdAt: { gte: since } },
   });
@@ -216,21 +279,273 @@ async function feedbackNegativeRate(tx: Tx, orgId: string, since: Date): Promise
 }
 
 /**
- * Compute all four process metrics for one tenant, for runs/events at/after
- * `since`. MUST be called inside a withTenant() transaction (RLS scopes every
- * read to `orgId`). Fast DB reads only — no LLM, no network.
+ * Open tickets missing acceptance markers — uses title + source_meta text.
+ * No data (zero open tickets) ⇒ null value ⇒ pass (no false alarm).
+ */
+async function openTicketsWithoutAcceptance(
+  tx: Tx,
+  _orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('open_tickets_without_acceptance', overrides);
+  // Open ≈ state not in completed/canceled/done (source_meta.state).
+  const openRows = await tx.$queryRaw<Array<{ total: bigint; missing: bigint }>>`
+    SELECT
+      count(*)::bigint AS total,
+      count(*) FILTER (
+        WHERE NOT (
+          COALESCE("title", '') ILIKE ${AC_MARKERS_SQL[0]}
+          OR COALESCE("title", '') ILIKE ${AC_MARKERS_SQL[1]}
+          OR COALESCE("title", '') ILIKE ${AC_MARKERS_SQL[2]}
+          OR COALESCE("source_meta"->>'text', '') ILIKE ${AC_MARKERS_SQL[0]}
+          OR COALESCE("source_meta"->>'text', '') ILIKE ${AC_MARKERS_SQL[1]}
+          OR COALESCE("source_meta"->>'text', '') ILIKE ${AC_MARKERS_SQL[2]}
+          OR COALESCE("source_meta"->>'description', '') ILIKE ${AC_MARKERS_SQL[0]}
+          OR COALESCE("source_meta"->>'description', '') ILIKE ${AC_MARKERS_SQL[1]}
+          OR COALESCE("source_meta"->>'description', '') ILIKE ${AC_MARKERS_SQL[2]}
+        )
+      )::bigint AS missing
+    FROM "documents"
+    WHERE "source" = 'ticket'
+      AND "external_ref" IS NOT NULL
+      AND "created_at" >= ${since}
+      AND COALESCE(lower("source_meta"->>'state'), '') NOT IN ('completed', 'canceled', 'cancelled', 'done')
+  `;
+  const total = Number(openRows[0]?.total ?? 0n);
+  const missing = Number(openRows[0]?.missing ?? 0n);
+  const value = rateOrNull(missing, total);
+  return {
+    key: 'open_tickets_without_acceptance',
+    value,
+    threshold,
+    direction,
+    passed: judge(value, threshold, direction),
+    detail: {
+      message:
+        value == null
+          ? 'No open tickets in the window — AC coverage not measurable yet.'
+          : `Open tickets without acceptance markers ${pct(value)} (target ≤ ${pct(threshold)}).`,
+      numerator: missing,
+      denominator: total,
+    },
+  };
+}
+
+async function staleOpenTickets(
+  tx: Tx,
+  _orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('stale_open_tickets', overrides);
+  const rows = await tx.$queryRaw<Array<{ total: bigint; stale: bigint }>>`
+    SELECT
+      count(*)::bigint AS total,
+      count(*) FILTER (
+        WHERE COALESCE(
+          CASE
+            WHEN "source_meta"->>'lastActivityAt' ~ '^[0-9]{4}-'
+              THEN ("source_meta"->>'lastActivityAt')::timestamptz
+            ELSE NULL
+          END,
+          "created_at"
+        ) < now() - (${STALE_OPEN_TICKET_DAYS} * interval '1 day')
+      )::bigint AS stale
+    FROM "documents"
+    WHERE "source" = 'ticket'
+      AND "external_ref" IS NOT NULL
+      AND "created_at" >= ${since}
+      AND COALESCE(lower("source_meta"->>'state'), '') NOT IN ('completed', 'canceled', 'cancelled', 'done')
+  `;
+  const total = Number(rows[0]?.total ?? 0n);
+  const stale = Number(rows[0]?.stale ?? 0n);
+  const value = rateOrNull(stale, total);
+  return {
+    key: 'stale_open_tickets',
+    value,
+    threshold,
+    direction,
+    passed: judge(value, threshold, direction),
+    detail: {
+      message:
+        value == null
+          ? 'No open tickets in the window — stale rate not measurable yet.'
+          : `Stale open tickets ${pct(value)} (target ≤ ${pct(threshold)}).`,
+      numerator: stale,
+      denominator: total,
+    },
+  };
+}
+
+/**
+ * Compute process metrics for one tenant, for runs/events at/after `since`.
+ * MUST be called inside a withTenant() transaction (RLS scopes every read to
+ * `orgId`). Fast DB reads only — no LLM, no network.
+ *
+ * When `thresholdOverrides` is omitted, loads org_settings.loop_metric_thresholds
+ * (NULL ⇒ code defaults). Pass an explicit map in tests to pin overrides.
  */
 export async function computeLoopMetrics(
   tx: Tx,
   orgId: string,
-  { since }: { since: Date },
+  { since, thresholdOverrides }: { since: Date; thresholdOverrides?: MetricThresholdMap },
 ): Promise<LoopMetrics> {
+  let overrides = thresholdOverrides;
+  if (overrides === undefined) {
+    const row = await tx.orgSettings.findUnique({
+      where: { orgId },
+      select: { loopMetricThresholds: true },
+    });
+    overrides = parseMetricThresholdOverrides(row?.loopMetricThresholds);
+  }
+
   // Sequential: one pinned connection per interactive transaction.
   const metrics: LoopMetric[] = [
-    await successRate(tx, orgId, since),
-    await approvalRate(tx, orgId, since),
-    await iterationRate(tx, orgId, since),
-    await feedbackNegativeRate(tx, orgId, since),
+    await successRate(tx, orgId, since, overrides),
+    await approvalRate(tx, orgId, since, overrides),
+    await iterationRate(tx, orgId, since, overrides),
+    await feedbackNegativeRate(tx, orgId, since, overrides),
+    await openTicketsWithoutAcceptance(tx, orgId, since, overrides),
+    await staleOpenTickets(tx, orgId, since, overrides),
+    await commitsWithoutTicket(tx, orgId, since, overrides),
+    await ticketsDoneWithoutCommit(tx, orgId, since, overrides),
   ];
   return { since, metrics };
+}
+
+/** Share of code documents whose message has no ticket ref (P2-B). */
+async function commitsWithoutTicket(
+  tx: Tx,
+  _orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('commits_without_ticket', overrides);
+  const rows = await tx.$queryRaw<Array<{ total: bigint; missing: bigint }>>`
+    SELECT
+      count(*)::bigint AS total,
+      count(*) FILTER (
+        WHERE NOT (
+          lower(COALESCE("source_meta"->>'hasTicketRef', '')) IN ('true', 't', '1')
+          OR COALESCE("source_meta"->>'message', "title", '') ~* '[A-Z][A-Z0-9]+-[0-9]+'
+        )
+      )::bigint AS missing
+    FROM "documents"
+    WHERE "source" = 'code'
+      AND "external_ref" IS NOT NULL
+      AND "created_at" >= ${since}
+  `;
+  const total = Number(rows[0]?.total ?? 0n);
+  const missing = Number(rows[0]?.missing ?? 0n);
+  const value = rateOrNull(missing, total);
+  return {
+    key: 'commits_without_ticket',
+    value,
+    threshold,
+    direction,
+    passed: judge(value, threshold, direction),
+    detail: {
+      message:
+        value == null
+          ? 'No code documents in the window — commit/ticket link rate not measurable yet.'
+          : `Commits/PRs without ticket ref ${pct(value)} (target ≤ ${pct(threshold)}).`,
+      numerator: missing,
+      denominator: total,
+    },
+  };
+}
+
+/**
+ * Done tickets whose identifier does not appear in any code document's
+ * ticketRefs / text. Conservative: only counts tickets with an identifier in
+ * source_meta.
+ */
+async function ticketsDoneWithoutCommit(
+  tx: Tx,
+  _orgId: string,
+  since: Date,
+  overrides: MetricThresholdMap,
+): Promise<LoopMetric> {
+  const { threshold, direction } = thr('tickets_done_without_commit', overrides);
+  const tickets = await tx.document.findMany({
+    where: {
+      source: 'ticket',
+      externalRef: { not: null },
+      createdAt: { gte: since },
+    },
+    select: { sourceMeta: true, title: true },
+    take: 200,
+  });
+
+  const doneTickets: string[] = [];
+  for (const t of tickets) {
+    const meta =
+      t.sourceMeta && typeof t.sourceMeta === 'object' && !Array.isArray(t.sourceMeta)
+        ? (t.sourceMeta as Record<string, unknown>)
+        : {};
+    const state = String(meta.state ?? '').toLowerCase();
+    if (!['completed', 'done', 'canceled', 'cancelled'].includes(state)) continue;
+    if (state === 'canceled' || state === 'cancelled') continue;
+    const id =
+      (typeof meta.identifier === 'string' && meta.identifier) ||
+      (typeof meta.issueId === 'string' && meta.issueId) ||
+      null;
+    if (id) doneTickets.push(id);
+  }
+
+  if (doneTickets.length === 0) {
+    return {
+      key: 'tickets_done_without_commit',
+      value: null,
+      threshold,
+      direction,
+      passed: true,
+      detail: {
+        message: 'No completed tickets with identifiers in the window — not measurable yet.',
+      },
+    };
+  }
+
+  const codeDocs = await tx.document.findMany({
+    where: { source: 'code', externalRef: { not: null }, createdAt: { gte: since } },
+    select: { sourceMeta: true, title: true },
+    take: 500,
+  });
+
+  let linked = 0;
+  for (const id of doneTickets) {
+    const needle = id.toUpperCase();
+    const found = codeDocs.some((d) => {
+      const meta =
+        d.sourceMeta && typeof d.sourceMeta === 'object' && !Array.isArray(d.sourceMeta)
+          ? (d.sourceMeta as Record<string, unknown>)
+          : {};
+      const refs = Array.isArray(meta.ticketRefs)
+        ? meta.ticketRefs.map((r) => String(r).toUpperCase())
+        : [];
+      if (refs.includes(needle)) return true;
+      const text = `${d.title} ${typeof meta.text === 'string' ? meta.text : ''} ${typeof meta.message === 'string' ? meta.message : ''}`;
+      return text.toUpperCase().includes(needle);
+    });
+    if (found) linked++;
+  }
+
+  const missing = doneTickets.length - linked;
+  const value = rateOrNull(missing, doneTickets.length);
+  return {
+    key: 'tickets_done_without_commit',
+    value,
+    threshold,
+    direction,
+    passed: judge(value, threshold, direction),
+    detail: {
+      message:
+        value == null
+          ? `Fewer than ${MIN_METRIC_SAMPLES} completed tickets — not measurable yet.`
+          : `Completed tickets without linked commit ${pct(value)} (target ≤ ${pct(threshold)}).`,
+      numerator: missing,
+      denominator: doneTickets.length,
+    },
+  };
 }

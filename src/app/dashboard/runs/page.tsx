@@ -23,6 +23,8 @@ export default async function RunsPage() {
         input: true,
         createdAt: true,
         clientId: true,
+        stepAttempts: true,
+        claimUntil: true,
         client: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -78,6 +80,11 @@ export default async function RunsPage() {
                       <span style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                         <RunStatusChip status={run.status} locale={locale} />
                         {run.mode === 'simulation' ? <SimulationBadge locale={locale} /> : null}
+                        {run.status === 'running' && (run.stepAttempts ?? 0) > 0 ? (
+                          <span className="chip chip--amber" title="Durable retry / backoff">
+                            {t.runs.retrying(run.stepAttempts)}
+                          </span>
+                        ) : null}
                       </span>
                     </td>
                     <td className="mono row-meta" style={{ whiteSpace: 'nowrap' }}>

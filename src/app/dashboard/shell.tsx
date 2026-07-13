@@ -91,7 +91,7 @@ const SECTIONS: NavSection[] = [
       {
         href: '/dashboard/connectors',
         key: 'connectors',
-        soon: true,
+        // Live: Linear / GitHub / Drive read connectors (P0–P2) — not "coming soon".
         icon: <Icon d="M8 12h8M12 3v3M6.3 6.3l2.15 2.15M3 12h3M6.3 17.7l2.15-2.15M12 18v3M17.7 17.7l-2.15-2.15M18 12h3M17.7 6.3l-2.15 2.15" />,
       },
     ],

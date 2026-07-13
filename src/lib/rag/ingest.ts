@@ -37,6 +37,23 @@ export function assertDimensions(vectors: number[][], provider: EmbeddingProvide
   }
 }
 
+/** Tool-ingested sources must never land as open (fail-closed visibility). */
+const TOOL_SOURCES: ReadonlySet<DocumentSource> = new Set(['ticket', 'code', 'doc']);
+
+/**
+ * Resolve visibility: tool sources are forced to restricted (or confidential
+ * if explicitly requested) — never open. Manual/upload keep the caller's choice.
+ */
+export function resolveIngestVisibility(
+  source: DocumentSource,
+  requested?: DocumentVisibility,
+): DocumentVisibility {
+  if (TOOL_SOURCES.has(source)) {
+    return requested === 'confidential' ? 'confidential' : 'restricted';
+  }
+  return requested ?? 'open';
+}
+
 export interface IngestDocumentInput {
   /** Tenant key — from requireTenant() (or the demo/seed fixture), never from a client. */
   orgId: string;
@@ -56,6 +73,17 @@ export interface IngestDocumentInput {
     pageCount?: number | null;
     wordCount?: number | null;
   };
+  /**
+   * Stable external identity (e.g. `linear:issue:<uuid>`). When set, a second
+   * ingest with the same (org, externalRef) UPDATES the existing document
+   * (chunk replace) instead of creating a duplicate — the tool-dedup path.
+   */
+  externalRef?: string;
+  /**
+   * Structured tool fields for the loop (dueDate, state, assigneeId, …).
+   * Stored as documents.source_meta JSONB.
+   */
+  sourceMeta?: Record<string, unknown>;
   /** Injectable for tests/demo; defaults to the env-selected provider. */
   embedder?: EmbeddingProvider;
   /**
@@ -79,8 +107,14 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
   if (!title) throw new Error('ingestDocument: title is required.');
   if (!text) throw new Error('ingestDocument: text is required.');
 
+  const externalRef = input.externalRef?.trim() || undefined;
+  if (externalRef !== undefined && !externalRef) {
+    throw new Error('ingestDocument: externalRef must be non-empty when provided.');
+  }
+
   // Re-ingest is admin-only (same authority as delete / visibility change) and
   // the target id must be a UUID — reject before any embedding spend.
+  // Tool externalRef upserts are NOT admin-gated (agent path); human re-ingest is.
   if (input.replaceDocumentId !== undefined) {
     if (!isUuid(input.replaceDocumentId)) {
       throw new Error('ingestDocument: replaceDocumentId must be a UUID.');
@@ -101,6 +135,19 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
   // Kostenschutz VOR dem ersten bezahlten Aufruf (Embeddings).
   await withTenant(input.orgId, (tx) => assertWithinDailyLimit(tx, 'ingest'));
 
+  // Resolve existing doc by externalRef BEFORE embedding spend when possible —
+  // still embed (content may have changed); we only need the id for replace.
+  let replaceId = input.replaceDocumentId;
+  if (!replaceId && externalRef) {
+    const existing = await withTenant(input.orgId, (tx) =>
+      tx.document.findFirst({
+        where: { externalRef },
+        select: { id: true },
+      }),
+    );
+    if (existing) replaceId = existing.id;
+  }
+
   const embedder = input.embedder ?? getEmbeddingProvider();
   const vectors = await embedder.embed(contents, 'document');
   if (vectors.length !== contents.length) {
@@ -110,38 +157,86 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
   }
   assertDimensions(vectors, embedder);
 
+  const sourceMeta =
+    input.sourceMeta !== undefined ? (input.sourceMeta as Prisma.InputJsonValue) : undefined;
+  const isReplace = Boolean(replaceId);
+
   return withTenant(input.orgId, async (tx) => {
     let document;
-    if (input.replaceDocumentId) {
+    if (replaceId) {
       // Version replacement: same document id, fresh content. RLS scopes the
-      // lookup — a foreign id fails as "not found". Admin gate ran above.
+      // lookup — a foreign id fails as "not found". Admin gate ran for human
+      // replaceDocumentId; externalRef path is the tool upsert.
       const existing = await tx.document.findUniqueOrThrow({
-        where: { id: input.replaceDocumentId },
+        where: { id: replaceId },
       });
+      // Preserve existing visibility when the caller does not pass one — except
+      // tool sources, which stay fail-closed (never open).
+      const visibility = TOOL_SOURCES.has(input.source)
+        ? resolveIngestVisibility(input.source, input.visibility)
+        : (input.visibility ?? existing.visibility);
       await tx.chunk.deleteMany({ where: { documentId: existing.id } });
       document = await tx.document.update({
         where: { id: existing.id },
         data: {
           title,
           source: input.source,
-          visibility: input.visibility ?? existing.visibility,
+          visibility,
           sourceFormat: input.meta?.sourceFormat ?? existing.sourceFormat,
           pageCount: input.meta?.pageCount ?? null,
           wordCount: input.meta?.wordCount ?? null,
+          ...(externalRef !== undefined ? { externalRef } : {}),
+          ...(sourceMeta !== undefined ? { sourceMeta } : {}),
         },
       });
     } else {
-      document = await tx.document.create({
-        data: {
-          orgId: input.orgId,
-          title,
-          source: input.source,
-          visibility: input.visibility ?? 'open',
-          sourceFormat: input.meta?.sourceFormat ?? null,
-          pageCount: input.meta?.pageCount ?? null,
-          wordCount: input.meta?.wordCount ?? null,
-        },
-      });
+      const visibility = resolveIngestVisibility(input.source, input.visibility);
+      try {
+        document = await tx.document.create({
+          data: {
+            orgId: input.orgId,
+            title,
+            source: input.source,
+            visibility,
+            sourceFormat: input.meta?.sourceFormat ?? null,
+            pageCount: input.meta?.pageCount ?? null,
+            wordCount: input.meta?.wordCount ?? null,
+            externalRef: externalRef ?? null,
+            sourceMeta: sourceMeta ?? Prisma.JsonNull,
+          },
+        });
+      } catch (err) {
+        // Race: concurrent externalRef upsert — fall back to replace path.
+        if (
+          externalRef &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          const raced = await tx.document.findFirst({
+            where: { externalRef },
+            select: { id: true, visibility: true, sourceFormat: true },
+          });
+          if (!raced) throw err;
+          await tx.chunk.deleteMany({ where: { documentId: raced.id } });
+          document = await tx.document.update({
+            where: { id: raced.id },
+            data: {
+              title,
+              source: input.source,
+              visibility: TOOL_SOURCES.has(input.source)
+                ? visibility
+                : (input.visibility ?? raced.visibility),
+              sourceFormat: input.meta?.sourceFormat ?? raced.sourceFormat,
+              pageCount: input.meta?.pageCount ?? null,
+              wordCount: input.meta?.wordCount ?? null,
+              externalRef,
+              ...(sourceMeta !== undefined ? { sourceMeta } : {}),
+            },
+          });
+        } else {
+          throw err;
+        }
+      }
     }
     // Belt-and-suspenders: WITH CHECK already guaranteed this.
     if (document.orgId !== input.orgId) {
@@ -162,9 +257,13 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
       orgId: input.orgId,
       actorId: input.actorId,
       actorType: 'agent',
-      action: input.replaceDocumentId ? 'knowledge.reingested' : 'knowledge.ingested',
+      action: isReplace ? 'knowledge.reingested' : 'knowledge.ingested',
       target: title,
-      detail: input.replaceDocumentId ? { documentId: document.id } : undefined,
+      detail: {
+        documentId: document.id,
+        ...(externalRef ? { externalRef } : {}),
+        ...(input.source ? { source: input.source } : {}),
+      },
     });
 
     return { documentId: document.id, chunkCount: contents.length };

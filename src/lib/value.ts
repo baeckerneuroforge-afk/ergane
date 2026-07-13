@@ -32,6 +32,10 @@ export const DEFAULT_MINUTES_SAVED: Record<string, number> = {
   wissen_zusammenfassen: 20,
   angebot_erstellen: 45,
   rechnung_erstellen: 25,
+  transkript_zu_framework: 40,
+  transkript_zu_use_cases: 30,
+  transkript_zu_briefing: 25,
+  linear_kommentar: 5,
 };
 
 /** Fallback for skills without an explicit default (new catalog entries). */

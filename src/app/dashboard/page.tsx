@@ -88,13 +88,19 @@ export default async function CockpitPage() {
         orderBy: { createdAt: 'desc' },
         take: 6,
       }),
-      // Loop flags = append-only audit rows with a 'flag.' action (plan §5,
-      // Stufe A). Count the last 7 days and pull the newest one for the panel.
+      // Deviation raises only (same as computeLoopKpis): never count
+      // flag.status_changed from ack/resolve — that inflated the 7d total.
       tx.auditLog.count({
-        where: { action: { startsWith: 'flag.' }, createdAt: { gte: sevenDaysAgo } },
+        where: {
+          action: { in: ['flag.criteria_violated', 'flag.metric_deviation'] },
+          createdAt: { gte: sevenDaysAgo },
+        },
       }),
       tx.auditLog.findFirst({
-        where: { action: { startsWith: 'flag.' }, createdAt: { gte: sevenDaysAgo } },
+        where: {
+          action: { in: ['flag.criteria_violated', 'flag.metric_deviation'] },
+          createdAt: { gte: sevenDaysAgo },
+        },
         orderBy: { createdAt: 'desc' },
       }),
       {

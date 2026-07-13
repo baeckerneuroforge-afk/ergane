@@ -31,6 +31,12 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/api/slack(.*)',
   '/api/clerk(.*)',
+  // Linear (and future) connector webhooks — signature-verified, no Clerk session.
+  // OAuth start/callback still need a Clerk session (not matched here as public
+  // for start/callback: only the webhook is public). OAuth routes use requireTenant.
+  '/api/connectors/linear/webhook',
+  '/api/connectors/github/webhook',
+  '/api/connectors/drive/webhook',
   // Uptime checks — returns only up/down, no tenant data (Phase 13).
   '/api/health',
   // Vercel Cron — authenticates itself via CRON_SECRET (fail-closed in the

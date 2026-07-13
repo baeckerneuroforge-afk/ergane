@@ -6,8 +6,11 @@ export {
   approve,
   reject,
   isRetriableStepError,
+  retryBackoffMs,
   MAX_STEP_ATTEMPTS,
   CLAIM_LEASE_MS,
+  RETRY_BACKOFF_BASE_MS,
+  RETRY_BACKOFF_MAX_MS,
 } from './engine';
 export type { RunHandle, StartRunOptions, DriveMode } from './engine';
 export {

@@ -165,8 +165,9 @@ describe('computeLoopKpis', () => {
   it('returns null latency when nothing decided', async () => {
     const kpis = await withTenant(ORG_A, (tx) => computeLoopKpis(tx, ORG_A));
     expect(kpis.approvalLatencyMedianMs).toBeNull();
-    expect(kpis.processMetricsTotal).toBe(4);
-    expect(kpis.processMetricsHealthy).toBe(4); // empty org → metrics pass (no false alarms)
+    // 4 classic + 2 ticket tool + 2 cross-signal metrics (commits/tickets).
+    expect(kpis.processMetricsTotal).toBe(8);
+    expect(kpis.processMetricsHealthy).toBe(8); // empty org → metrics pass (no false alarms)
   });
 });
 

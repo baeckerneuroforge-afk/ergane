@@ -16,11 +16,17 @@
 // change writes audit 'policy.changed' with { old, new } — the EXACT pattern of
 // setApprovalPolicy (src/lib/policies/index.ts).
 
-import type { LoopAutonomy } from '@prisma/client';
+import type { LoopAutonomy, Prisma } from '@prisma/client';
 import { logAudit } from '../audit';
 import { DEFAULT_LOCALE, isLocale, type Locale } from '../i18n';
 import { requireAdmin } from '../policies/admin';
 import { withTenant, type Tx } from '../tenant';
+import {
+  parseCriteriaOverrides,
+  parseMetricThresholdOverrides,
+  type CriteriaOverridesMap,
+  type MetricThresholdMap,
+} from './thresholds';
 
 export type { LoopAutonomy };
 
@@ -143,5 +149,106 @@ export async function setLoopAutonomy(input: SetLoopAutonomyInput): Promise<Loop
       detail: { old: oldLevel, new: level },
     });
     return level;
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Loop metric thresholds + criteria overrides (P1-B)
+// -----------------------------------------------------------------------------
+
+export async function getLoopMetricThresholdOverrides(
+  orgId: string,
+): Promise<MetricThresholdMap> {
+  const row = await withTenant(orgId, (tx) =>
+    tx.orgSettings.findUnique({
+      where: { orgId },
+      select: { loopMetricThresholds: true },
+    }),
+  );
+  return parseMetricThresholdOverrides(row?.loopMetricThresholds);
+}
+
+export async function getLoopCriteriaOverrides(orgId: string): Promise<CriteriaOverridesMap> {
+  const row = await withTenant(orgId, (tx) =>
+    tx.orgSettings.findUnique({
+      where: { orgId },
+      select: { loopCriteriaOverrides: true },
+    }),
+  );
+  return parseCriteriaOverrides(row?.loopCriteriaOverrides);
+}
+
+export interface SetLoopMetricThresholdsInput {
+  orgId: string;
+  actorUserId: string;
+  /** Full override map to store (empty object clears to defaults). */
+  thresholds: MetricThresholdMap;
+}
+
+export async function setLoopMetricThresholds(
+  input: SetLoopMetricThresholdsInput,
+): Promise<MetricThresholdMap> {
+  const cleaned = parseMetricThresholdOverrides(input.thresholds);
+  return withTenant(input.orgId, async (tx) => {
+    await requireAdmin(tx, input.orgId, input.actorUserId);
+    const old = await tx.orgSettings.findUnique({
+      where: { orgId: input.orgId },
+      select: { loopMetricThresholds: true },
+    });
+    const oldParsed = parseMetricThresholdOverrides(old?.loopMetricThresholds);
+    if (JSON.stringify(oldParsed) === JSON.stringify(cleaned)) return cleaned;
+
+    const json = cleaned as Prisma.InputJsonValue;
+    await tx.orgSettings.upsert({
+      where: { orgId: input.orgId },
+      create: { orgId: input.orgId, loopMetricThresholds: json },
+      update: { loopMetricThresholds: json },
+    });
+    await logAudit(tx, {
+      orgId: input.orgId,
+      actorId: input.actorUserId,
+      actorType: 'human',
+      action: 'policy.changed',
+      target: 'org_settings:loop_metric_thresholds',
+      detail: { old: oldParsed, new: cleaned },
+    });
+    return cleaned;
+  });
+}
+
+export interface SetLoopCriteriaOverridesInput {
+  orgId: string;
+  actorUserId: string;
+  overrides: CriteriaOverridesMap;
+}
+
+export async function setLoopCriteriaOverrides(
+  input: SetLoopCriteriaOverridesInput,
+): Promise<CriteriaOverridesMap> {
+  const cleaned = parseCriteriaOverrides(input.overrides);
+  return withTenant(input.orgId, async (tx) => {
+    await requireAdmin(tx, input.orgId, input.actorUserId);
+    const old = await tx.orgSettings.findUnique({
+      where: { orgId: input.orgId },
+      select: { loopCriteriaOverrides: true },
+    });
+    const oldParsed = parseCriteriaOverrides(old?.loopCriteriaOverrides);
+    if (JSON.stringify(oldParsed) === JSON.stringify(cleaned)) return cleaned;
+
+    const json = cleaned as Prisma.InputJsonValue;
+    await tx.orgSettings.upsert({
+      where: { orgId: input.orgId },
+      create: { orgId: input.orgId, loopCriteriaOverrides: json },
+      update: { loopCriteriaOverrides: json },
+    });
+    await logAudit(tx, {
+      orgId: input.orgId,
+      actorId: input.actorUserId,
+      actorType: 'human',
+      action: 'policy.changed',
+      target: 'org_settings:loop_criteria_overrides',
+      detail: { old: oldParsed, new: cleaned },
+    });
+    return cleaned;
   });
 }

@@ -1,16 +1,30 @@
-// In-memory rate limiter for the PUBLIC Slack/webhook endpoints.
+// In-memory fixed-window rate limiter (shared backstop).
 //
-// Purpose: protect the HMAC computation and DB lookups from flooding with
-// garbage requests. This is per-process (fine for dev/self-host, one bucket
-// per serverless instance) — for hard guarantees put a platform limiter
-// (e.g. Vercel WAF rate rules) in front; this is the in-app backstop.
+// Used for:
+//   • PUBLIC Slack/webhook endpoints (per client IP) — protect HMAC + DB
+//   • AUTHENTICATED expensive dashboard paths (chat, skill-start, upload) —
+//     burst protection on top of daily soft limits (src/lib/limits.ts)
 //
-// Fixed-window counter per key (caller passes the client IP): allow at most
-// LIMIT requests per WINDOW. Old windows are pruned opportunistically so the
-// map cannot grow unbounded under an IP-spraying attack.
+// Per-process / per serverless instance. For hard multi-instance guarantees
+// put a platform limiter (e.g. Vercel WAF) in front; this is the in-app backstop.
+//
+// Fixed-window counter per key: allow at most LIMIT requests per WINDOW. Old
+// windows are pruned opportunistically so the map cannot grow unbounded.
 
 const WINDOW_MS = 60_000;
+/** Default for public Slack/webhook endpoints (per IP). */
 export const RATE_LIMIT_PER_MINUTE = 60;
+
+/**
+ * Burst cap for authenticated expensive actions (per org+user+kind).
+ * Daily soft limits still apply separately; this stops rapid hammering.
+ */
+export const AUTH_BURST_LIMIT_PER_MINUTE = 20;
+
+export type AuthBurstKind = 'chat' | 'skill-start' | 'upload';
+
+export const AUTH_BURST_ERROR =
+  'Too many requests. Please wait a minute and try again.';
 
 interface Bucket {
   windowStart: number;
@@ -39,6 +53,31 @@ export function checkRateLimit(
   }
   bucket.count += 1;
   return bucket.count <= limit;
+}
+
+/**
+ * Key for authenticated burst limits — scoped to org AND user so one tenant
+ * member cannot burn another's budget, and kinds stay isolated.
+ */
+export function authBurstKey(kind: AuthBurstKind, orgId: string, userId: string): string {
+  return `auth:${kind}:${orgId}:${userId}`;
+}
+
+/**
+ * Fail-closed gate for chat / skill-start / upload actions.
+ * Throws AUTH_BURST_ERROR when the per-minute burst cap is exceeded.
+ */
+export function assertAuthBurstLimit(
+  kind: AuthBurstKind,
+  orgId: string,
+  userId: string,
+  now: number = Date.now(),
+  limit: number = AUTH_BURST_LIMIT_PER_MINUTE,
+): void {
+  const key = authBurstKey(kind, orgId, userId);
+  if (!checkRateLimit(key, now, limit)) {
+    throw new Error(AUTH_BURST_ERROR);
+  }
 }
 
 /** Test helper: forget all counters. */

@@ -299,6 +299,7 @@ export const transkriptZuFramework: SkillDef = {
   // Wirkung des generativen Deliverables (wie angebot_erstellen): die Guardrail
   // triggert immer, der Default (keine Policy) ist damit stets Freigabe.
   handlesMoney: false,
+  requiresHumanApproval: true,
   guardrail: () => ({ triggered: true, reason: FRAMEWORK_GUARDRAIL_REASON }),
   steps: [
     {

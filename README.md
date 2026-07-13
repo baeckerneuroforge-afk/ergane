@@ -1039,16 +1039,22 @@ Instanz.
 3. **Migrationen als Release-Schritt**, nie im Request-Pfad:
    `pnpm db:migrate` (läuft als Owner über `DIRECT_DATABASE_URL`) — z. B. als
    CI-Step vor dem Promote. Die App selbst verbindet nur als `app_user`.
-4. **Pooling**: hinter PgBouncer (Transaction-Mode) `&pgbouncer=true` an die
-   `DATABASE_URL` — `withTenant` ist unter Transaction-Pooling korrekt (siehe
-   oben), das Flag betrifft nur Prepared Statements.
-5. **Webhook-URLs eintragen**: Slack (drei URLs + OAuth-Redirect, siehe
-   „Slack lokal testen") und Clerk (`/api/clerk/webhooks`).
-6. **Backups**: beim Managed-Postgres-Anbieter aktivieren (PITR empfohlen);
+4. **Pooling**: Production `DATABASE_URL` must use Neon’s **pooled** endpoint
+   with both query params: `pgbouncer=true` **and** `connection_limit=1`
+   (e.g. `…?sslmode=require&pgbouncer=true&connection_limit=1`). Migrations keep
+   using unpooled `DIRECT_DATABASE_URL`. See `.env.example` and `src/lib/prisma.ts`.
+5. **CSP**: set `CSP_ENFORCE=true` in Production after verifying no CSP
+   console reports under Report-Only (default). Header name is chosen in
+   `cspHeaderName()` (`src/lib/csp.ts`).
+6. **Webhook-URLs eintragen**: Slack (drei URLs + OAuth-Redirect, siehe
+   „Slack lokal testen") und Clerk (`/api/clerk/webhooks`). Prefer
+   `SLACK_OAUTH_STATE_SECRET` for OAuth state HMAC (fallback: `SLACK_SIGNING_SECRET`).
+7. **Backups**: beim Managed-Postgres-Anbieter aktivieren (PITR empfohlen);
    der In-App-Export (Settings → „Daten & Löschung") ist ein
    Betroffenenrechte-Werkzeug, KEIN Backup.
-7. **Rate-Limits**: der In-App-Limiter ist per Instanz — für harte Garantien
-   WAF-/Plattform-Rate-Rules auf `/api/slack/*` und `/api/clerk/*` legen.
+8. **Rate-Limits**: In-App backstop is per instance — public Slack/Clerk plus
+   authenticated chat / skill-start / upload bursts. For hard multi-instance
+   guarantees, add WAF rules on `/api/slack/*`, `/api/clerk/*`, and heavy app paths.
 
 Tests: `tests/ops.test.ts`.
 

@@ -28,3 +28,15 @@ export function getEmailProvider(): EmailProvider {
 export { formatEur, renderBusinessPdf, renderSimplePdf } from './pdf';
 export type { BusinessPdfInput, BusinessPdfPosition, PdfLocale, PdfSender } from './pdf';
 export type { EmailProvider, EmailResult, OutgoingEmail, EmailAttachment } from './types';
+export {
+  getToolWriteProvider,
+  getFakeToolWriteProvider,
+  describeLinearComment,
+  FakeToolWriteProvider,
+  LinearToolWriteProvider,
+} from './tool-write';
+export type {
+  ToolWriteProvider,
+  LinearCommentInput,
+  LinearCommentResult,
+} from './tool-write';

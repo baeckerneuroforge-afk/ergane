@@ -78,20 +78,20 @@ async function prepare(input: RetrieveInput): Promise<ValidatedRetrieve> {
 
 type Tx = Parameters<Parameters<typeof withTenant>[1]>[0];
 
+type VisibleRow = {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  content: string;
+  ord: number;
+  similarity: number;
+};
+
 function searchVisible(
   tx: Tx,
   orgId: string,
   { k, literal, roleText }: ValidatedRetrieve,
-): Promise<
-  Array<{
-    chunk_id: string;
-    document_id: string;
-    document_title: string;
-    content: string;
-    ord: number;
-    similarity: number;
-  }>
-> {
+): Promise<VisibleRow[]> {
   return tx.$queryRaw`
     SELECT
       c."id"          AS chunk_id,
@@ -119,23 +119,55 @@ function searchVisible(
 }
 
 /**
- * Count the hits the disclosure filter HID from this asker: among the top-k
- * nearest chunks of the UNFILTERED tenant search, how many are (a) not
- * visible for the role and (b) at/above `minSimilarity` (so the count matches
- * what would actually have been used as context, not far-away noise).
- *
- * Only COUNT(*) leaves SQL — the filtered rows themselves are never selected
- * into the application. Runs inside withTenant (RLS keeps it tenant-scoped).
+ * ONE round-trip: top-k visible chunks (same as searchVisible) PLUS
+ * filteredCount among the top-k unfiltered nearest (hidden + ≥ minSimilarity).
+ * Disclosure invariant: only COUNT leaves SQL for hidden hits — no titles/ids.
  */
-function countFilteredHits(
+function searchVisibleWithTrace(
   tx: Tx,
   orgId: string,
   { k, literal, roleText }: ValidatedRetrieve,
   minSimilarity: number,
-): Promise<Array<{ filtered: number }>> {
+): Promise<
+  Array<{
+    chunk_id: string | null;
+    document_id: string | null;
+    document_title: string | null;
+    content: string | null;
+    ord: number | null;
+    similarity: number | null;
+    filtered_count: number;
+  }>
+> {
+  // Two CTEs in a single statement: visible_top preserves retrieve() semantics;
+  // nearest feeds only the COUNT of role-hidden near hits (no content leakage).
   return tx.$queryRaw`
-    SELECT COUNT(*)::int AS filtered
-    FROM (
+    WITH visible_top AS (
+      SELECT
+        c."id"          AS chunk_id,
+        c."document_id" AS document_id,
+        d."title"       AS document_title,
+        c."content",
+        c."ord",
+        1 - (c."embedding" <=> ${literal}::vector) AS similarity,
+        (c."embedding" <=> ${literal}::vector) AS dist
+      FROM "chunks" c
+      JOIN "documents" d
+        ON d."id" = c."document_id" AND d."org_id" = c."org_id"
+      WHERE c."org_id" = ${orgId}::uuid
+        AND (
+          d."visibility" = 'open'
+          OR EXISTS (
+            SELECT 1 FROM "visibility_grants" g
+            WHERE g."org_id" = c."org_id"
+              AND g."level" = d."visibility"
+              AND g."role"::text = ${roleText}
+          )
+        )
+      ORDER BY c."embedding" <=> ${literal}::vector
+      LIMIT ${k}
+    ),
+    nearest AS (
       SELECT
         1 - (c."embedding" <=> ${literal}::vector) AS similarity,
         (
@@ -153,15 +185,28 @@ function countFilteredHits(
       WHERE c."org_id" = ${orgId}::uuid
       ORDER BY c."embedding" <=> ${literal}::vector
       LIMIT ${k}
-    ) nearest
-    WHERE NOT nearest."visible"
-      AND nearest."similarity" >= ${minSimilarity}
+    ),
+    filtered AS (
+      SELECT COUNT(*)::int AS filtered_count
+      FROM nearest n
+      WHERE NOT n."visible"
+        AND n."similarity" >= ${minSimilarity}
+    )
+    SELECT
+      v.chunk_id,
+      v.document_id,
+      v.document_title,
+      v.content,
+      v.ord,
+      v.similarity,
+      f.filtered_count
+    FROM filtered f
+    LEFT JOIN visible_top v ON true
+    ORDER BY v.dist ASC NULLS LAST
   `;
 }
 
-function toRetrievedChunks(
-  rows: Awaited<ReturnType<typeof searchVisible>>,
-): RetrievedChunk[] {
+function toRetrievedChunks(rows: VisibleRow[]): RetrievedChunk[] {
   return rows.map((r) => ({
     chunkId: r.chunk_id,
     documentId: r.document_id,
@@ -180,22 +225,38 @@ export async function retrieve(input: RetrieveInput): Promise<RetrievedChunk[]> 
 
 /**
  * Like retrieve(), but additionally reports how many nearby hits the role
- * disclosure filter hid — as a NUMBER only (see countFilteredHits). Basis of
- * the "Why this answer?" trace. `minSimilarity` should be the embedder's
- * relevance threshold so the count means "hits that would have been used".
+ * disclosure filter hid — as a NUMBER only. Basis of the "Why this answer?"
+ * trace. `minSimilarity` should be the embedder's relevance threshold so the
+ * count means "hits that would have been used".
+ *
+ * Uses a single SQL round-trip (searchVisibleWithTrace) instead of two
+ * sequential vector scans.
  */
 export async function retrieveWithTrace(
   input: RetrieveInput & { minSimilarity?: number },
 ): Promise<RetrieveWithTraceResult> {
   const prepared = await prepare(input);
   const minSimilarity = input.minSimilarity ?? 0;
-  const [rows, counted] = await withTenant(input.orgId, async (tx) => {
-    const visible = await searchVisible(tx, input.orgId, prepared);
-    const count = await countFilteredHits(tx, input.orgId, prepared, minSimilarity);
-    return [visible, count] as const;
-  });
-  return {
-    chunks: toRetrievedChunks(rows),
-    filteredCount: counted[0]?.filtered ?? 0,
-  };
+  const rows = await withTenant(input.orgId, (tx) =>
+    searchVisibleWithTrace(tx, input.orgId, prepared, minSimilarity),
+  );
+  const filteredCount = rows[0]?.filtered_count ?? 0;
+  const chunks = rows
+    .filter((r): r is typeof r & {
+      chunk_id: string;
+      document_id: string;
+      document_title: string;
+      content: string;
+      ord: number;
+      similarity: number;
+    } => r.chunk_id != null)
+    .map((r) => ({
+      chunkId: r.chunk_id,
+      documentId: r.document_id,
+      documentTitle: r.document_title,
+      content: r.content,
+      ord: r.ord,
+      similarity: r.similarity,
+    }));
+  return { chunks, filteredCount };
 }

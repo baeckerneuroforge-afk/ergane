@@ -50,12 +50,11 @@ export async function computeLoopKpis(
     opts.since ??
     new Date(Date.now() - LOOP_KPI_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-  // Deviation flags only — exclude flag.correction_requested (that is a
-  // correction event, counted separately under humanCorrections).
+  // Deviation raises only — exclude status transitions and correction requests
+  // so acking a flag does not inflate the deviation count (P2 review).
   const flags = await tx.auditLog.count({
     where: {
-      action: { startsWith: 'flag.' },
-      NOT: { action: 'flag.correction_requested' },
+      action: { in: ['flag.criteria_violated', 'flag.metric_deviation'] },
       createdAt: { gte: since },
     },
   });

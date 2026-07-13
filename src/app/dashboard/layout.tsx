@@ -22,16 +22,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     role,
   });
 
-  // 7-day window for the flags nav badge — mirrors the cockpit panel's window,
-  // so "N" in the sidebar and "N flags in the last 7 days" always agree.
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
+  // Nav badge = open work items on loop_flags (status=open). Must NOT count
+  // flag.status_changed audit rows (ack/resolve would inflate the badge).
   const { org, pendingApprovals, openFlags } = await withTenant(orgId, async (tx) => ({
     org: await tx.organization.findUnique({ where: { id: orgId } }),
     pendingApprovals: await tx.approval.count({ where: { status: 'pending' } }),
-    openFlags: await tx.auditLog.count({
-      where: { action: { startsWith: 'flag.' }, createdAt: { gte: sevenDaysAgo } },
-    }),
+    openFlags: await tx.loopFlag.count({ where: { status: 'open' } }),
   }));
 
   const showFakeAi = isUsingFakeAiProviders();

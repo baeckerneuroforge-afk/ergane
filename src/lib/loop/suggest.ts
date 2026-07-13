@@ -65,3 +65,16 @@ const METRIC_SUGGEST_TEXT: Record<Locale, string> = {
 export function buildMetricSuggestedActionText(locale: Locale): string {
   return METRIC_SUGGEST_TEXT[locale];
 }
+
+// Tool/ticket flags also have no helix skill to re-run — review-only suggestion.
+const TOOL_SUGGEST_TEXT: Record<Locale, (ref: string) => string> = {
+  en: (ref) =>
+    `Review ${ref} in the source tool (board/tracker) — no automatic correction (tool work is not a helix re-run).`,
+  de: (ref) =>
+    `${ref} im Quell-Tool (Board) prüfen — keine automatische Korrektur (Tool-Arbeit ist kein helix-Re-Run).`,
+};
+
+/** Review-oriented suggestion for a tool-criteria flag (no correction pointer). */
+export function buildToolSuggestedActionText(locale: Locale, externalRef: string): string {
+  return TOOL_SUGGEST_TEXT[locale](externalRef);
+}

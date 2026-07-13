@@ -27,12 +27,21 @@ import { withTenant } from '../src/lib/tenant';
 import { createClient } from '../src/lib/clients';
 import { answerQuestion, ingestDocument } from '../src/lib/rag';
 import { approve, reject, startRun } from '../src/lib/skills';
+import { resolveDemoOrgIds } from '../src/lib/demo/org';
 
-const DEMO_ORG = '99999999-9999-4999-8999-999999999999';
-const DEMO_CLERK_ORG = 'demo_org_nordwind';
-const DEMO_ORG_NAME = 'Nordwind GmbH';
+// Env-driven org bridge (P1-D): set DEMO_CLERK_ORG_ID to your live Clerk org id
+// so seed writes into the same tenant the dashboard uses. Optional DEMO_ORG_ID
+// overrides the derived UUID; DEMO_ORG_NAME sets the display name.
+const resolved = resolveDemoOrgIds(process.env);
+const DEMO_ORG = resolved.orgId;
+const DEMO_CLERK_ORG = resolved.clerkOrgId;
+const DEMO_ORG_NAME = resolved.orgName;
 /** Demo customer for client-tracker surfaces after seed. */
 const DEMO_CLIENT_NAME = 'Hanse Logistik GmbH';
+
+console.log(
+  `[seed:demo] org source=${resolved.source} orgId=${DEMO_ORG} clerkOrgId=${DEMO_CLERK_ORG} name=${DEMO_ORG_NAME}`,
+);
 
 const ADMIN = 'demo-admin';
 const LEAD = 'demo-lead';

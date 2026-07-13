@@ -188,6 +188,20 @@ describe('oauth install flow', () => {
     expect(verifyOAuthState(expired)).toBeNull();
   });
 
+  it('uses SLACK_OAUTH_STATE_SECRET when set (not only signing secret)', () => {
+    const prevDedicated = process.env.SLACK_OAUTH_STATE_SECRET;
+    process.env.SLACK_OAUTH_STATE_SECRET = 'prod-dedicated-state';
+    try {
+      const state = makeOAuthState(ORG_A);
+      expect(verifyOAuthState(state)).toBe(ORG_A);
+      process.env.SLACK_OAUTH_STATE_SECRET = 'other-dedicated';
+      expect(verifyOAuthState(state)).toBeNull();
+    } finally {
+      if (prevDedicated === undefined) delete process.env.SLACK_OAUTH_STATE_SECRET;
+      else process.env.SLACK_OAUTH_STATE_SECRET = prevDedicated;
+    }
+  });
+
   it('completeSlackOAuth stores the ENCRYPTED token, never plaintext', async () => {
     setSlackOAuthExchanger(async (code) => {
       expect(code).toBe('demo-code');

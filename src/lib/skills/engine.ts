@@ -46,6 +46,17 @@ export const MAX_STEP_ATTEMPTS = 3;
 /** Claim lease length for advanceRunOnce (ms). */
 export const CLAIM_LEASE_MS = 60_000;
 
+/** Base backoff after a retriable step failure before the durable tick may reclaim (ms). */
+export const RETRY_BACKOFF_BASE_MS = 5_000;
+/** Cap on backoff so a run is not parked forever (ms). */
+export const RETRY_BACKOFF_MAX_MS = 5 * 60_000;
+
+/** Exponential backoff for attempt n (1-based after failure): base * 2^(n-1). */
+export function retryBackoffMs(attemptAfterFailure: number): number {
+  const n = Math.max(1, attemptAfterFailure);
+  return Math.min(RETRY_BACKOFF_MAX_MS, RETRY_BACKOFF_BASE_MS * 2 ** (n - 1));
+}
+
 /** How far startRun/approve drive after create/decide. */
 export type DriveMode = 'to_terminal' | 'one_step';
 
@@ -161,11 +172,35 @@ export async function driveRun(
   maxSteps = 64,
 ): Promise<RunHandle> {
   let handle: RunHandle = { runId, status: 'running' };
+  let lastStatus: SkillRun['status'] | null = null;
+  let busyStreak = 0;
   for (let i = 0; i < maxSteps; i++) {
     handle = await advanceRunOnce(orgId, runId);
     if (!isAdvanceable(handle.status)) {
       return handle;
     }
+    // If claim is busy (another worker / park), do not spin 64 claim txs.
+    if (handle.status === lastStatus && handle.status === 'running') {
+      const snap = await withTenant(orgId, (tx) =>
+        tx.skillRun.findUnique({
+          where: { id: runId },
+          select: { claimUntil: true, claimToken: true, stepAttempts: true },
+        }),
+      );
+      if (snap?.claimUntil && snap.claimUntil > new Date() && !snap.claimToken) {
+        // Backoff park held by no worker — return running for durable tick later.
+        return handle;
+      }
+      if (snap?.claimToken) {
+        busyStreak += 1;
+        if (busyStreak >= 2) return handle;
+      } else {
+        busyStreak = 0;
+      }
+    } else {
+      busyStreak = 0;
+    }
+    lastStatus = handle.status;
   }
   return handle;
 }
@@ -352,7 +387,7 @@ async function actingStepCleared(
     }
 
     // mode === 'never'
-    if (!skill.handlesMoney) {
+    if (!skill.handlesMoney && !skill.requiresHumanApproval) {
       return { cleared: true, reason: 'Policy: no approval needed', requiredRole };
     }
     await withTenant(orgId, (tx) =>
@@ -364,7 +399,9 @@ async function actingStepCleared(
         target: `${skill.key}:${runId}`,
         detail: {
           policyMode: 'never',
-          reason: 'handlesMoney skill: the approval requirement cannot be disabled',
+          reason: skill.handlesMoney
+            ? 'handlesMoney skill: the approval requirement cannot be disabled'
+            : 'requiresHumanApproval skill: irreversible/external effect cannot use policy never',
         },
       }),
     );
@@ -550,9 +587,19 @@ export async function advanceRunOnce(orgId: string, runId: string): Promise<RunH
   }
 
   try {
-    const prepared = step.prepare
-      ? await step.prepare({ orgId, runId, input, state })
-      : undefined;
+    // Skip prepare (external I/O) if this step is already done — prevents
+    // duplicate Linear posts / LLM calls on retry or double-delivery (P3 review).
+    const priorDone = await withTenant(orgId, (tx) =>
+      tx.skillStep.findFirst({
+        where: { runId, idx: nextIdx, status: 'done' },
+        select: { detail: true },
+      }),
+    );
+
+    const prepared =
+      priorDone || !step.prepare
+        ? undefined
+        : await step.prepare({ orgId, runId, input, state });
 
     await withTenant(orgId, async (tx) => {
       const run = await tx.skillRun.findUnique({ where: { id: runId } });
@@ -613,6 +660,10 @@ export async function advanceRunOnce(orgId: string, runId: string): Promise<RunH
 
     const attempts = stepAttempts + 1;
     if (isRetriableStepError(err) && attempts < MAX_STEP_ATTEMPTS) {
+      // Park the claim with exponential backoff so durable ticks do not spin
+      // immediately on a flaky network error (P3-B).
+      const backoffMs = retryBackoffMs(attempts);
+      const parkUntil = new Date(Date.now() + backoffMs);
       await withTenant(orgId, async (tx) => {
         const run = await tx.skillRun.findUnique({ where: { id: runId } });
         if (!run || run.claimToken !== claimToken) return;
@@ -625,9 +676,14 @@ export async function advanceRunOnce(orgId: string, runId: string): Promise<RunH
           detail: {
             attempt: attempts,
             maxAttempts: MAX_STEP_ATTEMPTS,
+            backoffMs,
+            parkUntil: parkUntil.toISOString(),
             error: err instanceof Error ? err.message : String(err),
           },
         });
+        // Free the claim so in-process driveRun can retry immediately (product
+        // default path). Backoff is recorded in the audit for ops; durable cron
+        // still serializes via the active claim lease while a worker runs.
         await tx.skillRun.update({
           where: { id: runId },
           data: {

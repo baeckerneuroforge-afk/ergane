@@ -6,6 +6,7 @@
 // logic lives here.
 import type { ApprovalMode, DocumentVisibility, Role } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { requireTenant } from '@/lib/auth-context';
 import { ensureOrgAndMembership } from '@/lib/org';
 import { setCompanyProfile, setOrgLocale } from '@/lib/company';
@@ -17,8 +18,15 @@ import {
   setMembershipRole,
   setVisibilityGrant,
 } from '@/lib/policies';
-import { LOOP_AUTONOMY_LEVELS, setLoopAutonomy } from '@/lib/loop/settings';
+import {
+  LOOP_AUTONOMY_LEVELS,
+  setLoopAutonomy,
+  setLoopCriteriaOverrides,
+  setLoopMetricThresholds,
+} from '@/lib/loop/settings';
 import type { LoopAutonomy } from '@/lib/loop/settings';
+import { LOOP_METRIC_KEYS, type MetricThresholdMap } from '@/lib/loop/thresholds';
+import { METRIC_THRESHOLDS } from '@/lib/loop/metrics';
 import { listSkills } from '@/lib/skills';
 import { createSlackInstallation, linkSlackUser, unlinkSlackUser } from '@/lib/slack/admin';
 import { createClient, deleteClient, updateClient } from '@/lib/clients';
@@ -213,6 +221,49 @@ export async function saveLoopAutonomy(formData: FormData) {
 
   revalidatePath('/dashboard/settings');
   revalidatePath('/dashboard/flags');
+  redirect('/dashboard/settings?tab=loop&flash=ok');
+}
+
+export async function saveLoopMetricThresholds(formData: FormData) {
+  const { orgId, userId } = await requireTenantWithMembership();
+  const thresholds: MetricThresholdMap = {};
+  for (const key of LOOP_METRIC_KEYS) {
+    const raw = String(formData.get(`metric_${key}`) ?? '').trim();
+    if (!raw) continue;
+    let n = Number.parseFloat(raw.replace(',', '.'));
+    if (!Number.isFinite(n)) continue;
+    // Rate metrics in the form are entered as percent (0–100) when default is ≤ 1.
+    if (METRIC_THRESHOLDS[key].threshold <= 1 && n > 1) n = n / 100;
+    thresholds[key] = { threshold: n };
+  }
+  await setLoopMetricThresholds({ orgId, actorUserId: userId, thresholds });
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/flags');
+  redirect('/dashboard/settings?tab=loop&flash=ok');
+}
+
+export async function saveLoopCriteriaOverrides(formData: FormData) {
+  const { orgId, userId } = await requireTenantWithMembership();
+  const parseIntField = (name: string): number | undefined => {
+    const raw = String(formData.get(name) ?? '').trim();
+    if (!raw) return undefined;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+  const overrides = {
+    framework: {
+      min_use_cases: parseIntField('framework_min_use_cases'),
+      min_length: parseIntField('framework_min_length'),
+    },
+    use_cases: {
+      min_use_cases: parseIntField('use_cases_min_use_cases'),
+      min_length: parseIntField('use_cases_min_length'),
+    },
+  };
+  await setLoopCriteriaOverrides({ orgId, actorUserId: userId, overrides });
+  revalidatePath('/dashboard/settings');
+  revalidatePath('/dashboard/flags');
+  redirect('/dashboard/settings?tab=loop&flash=ok');
 }
 
 // -----------------------------------------------------------------------------

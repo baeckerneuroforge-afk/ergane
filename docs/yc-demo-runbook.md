@@ -33,10 +33,27 @@ Seed org constants (`scripts/seed-demo.ts`):
 
 1. Create a Clerk Organization with slug `demo` or `nordwind` (or set `DEMO_ORG_SLUGS=your-slug`).
 2. In Clerk Dashboard, note the org id (`org_…`).
-3. helix stores orgs as **UUID v5** of that Clerk id (`clerkOrgIdToUuid` in `src/lib/uuid.ts`). Seed uses a **fixed** UUID + `clerkOrgId: demo_org_nordwind` — it does **not** auto-match a random live Clerk org.
-4. Practical options for a live pitch:
-   - **A (recommended):** After login, use the dashboard with *your* Clerk org and keep `pnpm seed:demo` for CLI/screenshots; copy 2–3 sample docs into Knowledge manually once.
-   - **B:** Temporarily set seed's `DEMO_CLERK_ORG` to your real Clerk org id **and** `DEMO_ORG` to `clerkOrgIdToUuid(yourClerkOrgId)` so seed writes into the same tenant the UI uses — then re-run seed. (Requires editing constants in `scripts/seed-demo.ts`.)
+3. helix stores orgs as **UUID v5** of that Clerk id (`clerkOrgIdToUuid` in `src/lib/uuid.ts`).
+4. **One-command seed into your live Clerk org** (no code edits):
+
+```bash
+# Recommended: seed into the org your session uses
+export DEMO_CLERK_ORG_ID=org_xxxxxxxx          # real Clerk org id
+# optional display name:
+export DEMO_ORG_NAME="Nordwind GmbH"
+pnpm seed:demo
+```
+
+Optional overrides:
+
+| Env | Effect |
+|-----|--------|
+| `DEMO_CLERK_ORG_ID` or `DEMO_CLERK_ORG` | Clerk org id; internal UUID is derived automatically |
+| `DEMO_ORG_ID` | Force internal org UUID (must be a UUID) |
+| `DEMO_ORG_NAME` | Organization display name in seed |
+
+Without env vars, seed uses the built-in Nordwind constants (`demo_org_nordwind` + fixed UUID) for CLI/screenshots.
+
 5. Isolation proof: open `/demo/isolation` only when the session org is allowlisted — the demo guidance card includes that step only for demo orgs.
 
 ### Guaranteed approve moment

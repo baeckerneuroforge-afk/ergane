@@ -168,12 +168,20 @@ export const en = {
   connectors: {
     title: 'Connectors',
     intro:
-      'Tools your company already uses. helix will read (and later write) through a governed connector layer — not live yet.',
+      'Tools your company already uses. helix reads them through a governed connector layer (dedup, fail-closed visibility, audit).',
     statusShipped: 'Shipped',
     statusBuilding: 'In progress',
     statusPlanned: 'Planned',
     honestNote:
-      'Honest status: no third-party tool sync is productized yet (except Slack as a second input channel). This page is the roadmap surface, not a fake install grid.',
+      'Slack, Linear, GitHub, and Drive (read) are live. Writing back into tools is deliberately still roadmap (P3).',
+    connectLinear: 'Connect Linear',
+    connectGithub: 'Connect GitHub',
+    connectDrive: 'Connect Google Drive',
+    linearConnected: 'Linear connected',
+    githubConnected: 'GitHub connected',
+    driveConnected: 'Drive connected',
+    linearWorkspace: (id: string) => `Workspace: ${id}`,
+    connectedBanner: 'Connector linked. Webhooks land in the knowledge base (restricted).',
     items: {
       slack: {
         name: 'Slack',
@@ -182,18 +190,19 @@ export const en = {
       },
       linear: {
         name: 'Linear',
-        status: 'building' as const,
-        blurb: 'Read issues into the knowledge base with external_ref dedup (loop source 2).',
+        status: 'shipped' as const,
+        blurb:
+          'Read issues into the knowledge base; optional comment write via skill linear_kommentar (re-connect if install was read-only; needs HELIX_LINEAR_WRITE in prod).',
       },
       github: {
         name: 'GitHub',
-        status: 'planned' as const,
-        blurb: 'Read PRs/commits as observations for process signals.',
+        status: 'shipped' as const,
+        blurb: 'Read commits/PRs as code documents with ticket-ref signals (loop cross-signals).',
       },
       drive: {
         name: 'Google Drive / Docs',
-        status: 'planned' as const,
-        blurb: 'Ingest shared docs with fail-closed visibility defaults.',
+        status: 'shipped' as const,
+        blurb: 'Ingest shared docs (source=doc) with external_ref dedup and restricted visibility.',
       },
       email: {
         name: 'E-mail (Resend)',
@@ -204,12 +213,23 @@ export const en = {
   },
 
   flags: {
-    // Honest framing: a flag is an append-only audit entry, never mutated.
-    note: 'What the loop flagged: acceptance-criteria violations on deliverables and process-metric deviations. Append-only — entries are never changed or deleted.',
+    note: 'What the loop flagged: acceptance-criteria violations, process-metric deviations, and tool cross-signals. Work items can be acked or resolved; audit history of status changes stays append-only.',
     entryCount: (n: number) => (n === 1 ? '1 flag' : `${n} flags`),
     emptyTitle: 'No deviations',
     emptyBody:
-      'The loop reports here when a deliverable misses its acceptance criteria or a process metric drifts from target. Nothing has been flagged for this filter.',
+      'The loop reports here when a deliverable misses its acceptance criteria, a process metric drifts, or tool work fails a check. Nothing has been flagged for this filter.',
+    filterAll: 'All',
+    statusOpen: 'Open',
+    statusAcked: 'Acked',
+    statusResolved: 'Resolved',
+    status: 'Status',
+    categoryCol: 'Category',
+    target: 'Target',
+    deviations: 'Deviations',
+    actions: 'Actions',
+    ack: 'Ack',
+    resolve: 'Resolve',
+    reopen: 'Reopen',
     // Table headers.
     time: 'Time',
     flag: 'Flag',
@@ -386,9 +406,26 @@ export const en = {
 
   skills: {
     intro:
-      'Skills are declared workflows of the engine: reading steps run freely, acting steps sit behind a guardrail and human approval.',
+      'Skills are declared workflows of the engine: reading steps run freely, acting steps sit behind a guardrail and human approval. Browse the catalog, then open a skill to start it.',
     acts: 'acts',
     readsOnly: 'reads only',
+    openForm: 'Configure & run',
+    closeForm: 'Close',
+    startedFlash: 'Skill started — opening the run…',
+    descriptions: {
+      beleg_kontieren: 'Classify a receipt and prepare booking — money guardrail applies above the threshold.',
+      wissen_zusammenfassen: 'Summarize verified knowledge on a topic with sources (read-only).',
+      angebot_erstellen: 'Draft a customer quote PDF and send after approval.',
+      rechnung_erstellen: 'Create an invoice from line items — approval when the total needs it.',
+      transkript_zu_framework:
+        'Generate a structured client framework from discovery transcripts (always needs approval).',
+      transkript_zu_use_cases:
+        'Prioritize product/ops use cases from transcripts into a deliverable (always needs approval).',
+      transkript_zu_briefing:
+        'Short executive briefing from transcripts for leadership (always needs approval).',
+      linear_kommentar:
+        'Post a comment on a Linear issue after human approval — real external write when enabled.',
+    } as Record<string, string>,
     dryRun: {
       toggle: 'Dry run — nothing is executed',
       hint: 'All steps and guardrail checks still run; acting steps are only simulated.',
@@ -419,6 +456,14 @@ export const en = {
       service: 'Service',
       servicePlaceholder: 'e.g. project support Q3',
       quoteAmountPlaceholder: 'e.g. 4800.00',
+      topic: 'Topic',
+      topicPlaceholder: 'e.g. warehouse digitalization',
+      focus: 'Focus (optional)',
+      focusPlaceholder: 'e.g. pilot site Hamburg',
+      linearIssueId: 'Linear issue id (UUID)',
+      linearIssueIdPlaceholder: 'e.g. a1b2c3d4-…',
+      linearCommentBody: 'Comment',
+      linearCommentPlaceholder: 'Comment text posted to Linear after approval…',
       recipientEmail: 'Recipient e-mail (optional — empty = simulated sending)',
       emailPlaceholderQuote: 'e.g. purchasing@customer.com',
       emailPlaceholderInvoice: 'e.g. accounting@customer.com',
@@ -442,6 +487,7 @@ export const en = {
     startedAt: 'Started at',
     simulation: 'Dry run',
     colClient: 'Client',
+    retrying: (n: number) => `retry ${n}`,
   },
 
   runDetail: {
@@ -615,23 +661,34 @@ export const en = {
       save: 'Save autonomy level',
       thresholdsTitle: 'Process-metric thresholds',
       thresholdsHint:
-        'What the periodic check compares against. Read-only for now — a deviation raises a flag.',
+        'What the periodic check compares against. Admins can edit thresholds; empty/invalid fields keep the previous value. Rate metrics use percent (e.g. 70 = 70%).',
       metric: 'Metric',
       target: 'Target',
       direction: 'Healthy when',
       atLeast: '≥ target',
       atMost: '≤ target',
+      ratePercentHint: 'Enter as percent (0–100).',
+      saveThresholds: 'Save metric thresholds',
       metricNames: {
         success_rate: 'Success rate',
         approval_rate: 'Approval rate',
         iteration_rate: 'Iterations per client + skill',
         feedback_negative_rate: 'Negative chat feedback',
+        open_tickets_without_acceptance: 'Open tickets without acceptance markers',
+        stale_open_tickets: 'Stale open tickets',
+        commits_without_ticket: 'Commits/PRs without ticket ref',
+        tickets_done_without_commit: 'Done tickets without linked commit',
       } as Record<string, string>,
-      criteriaTitle: 'Active acceptance criteria',
+      criteriaTitle: 'Acceptance criteria',
       criteriaHint:
-        'What each finished deliverable is checked against. Read-only for now — a violation raises a flag.',
+        'Numeric knobs for deliverable checks (min use cases, min length). Other criteria stay structural. Changes are audited.',
       criteriaType: (type: string) => `Type: ${type}`,
       criterion: 'Criterion',
+      frameworkMinUseCases: 'Framework: minimum use cases',
+      frameworkMinLength: 'Framework: minimum length (chars)',
+      useCasesMinItems: 'Use cases: minimum items',
+      useCasesMinLength: 'Use cases: minimum length (chars)',
+      saveCriteria: 'Save criteria thresholds',
     },
     governance: {
       presetsTitle: 'Industry presets',
@@ -905,7 +962,16 @@ export const en = {
     wissen_zusammenfassen: 'Summarize knowledge',
     angebot_erstellen: 'Create and send a customer quote',
     rechnung_erstellen: 'Create and post an invoice',
+    transkript_zu_framework: 'Design a framework from transcripts',
+    transkript_zu_use_cases: 'Prioritize use cases from transcripts',
+    transkript_zu_briefing: 'Write an executive briefing from transcripts',
+    linear_kommentar: 'Post a Linear comment',
   } as Record<string, string>,
+
+  flash: {
+    success: 'Saved.',
+    error: 'Something went wrong.',
+  },
 };
 
 export type Dictionary = typeof en;

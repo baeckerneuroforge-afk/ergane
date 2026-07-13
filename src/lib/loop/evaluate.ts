@@ -4,13 +4,22 @@ import { getDictionary } from '../i18n';
 import { getSkill } from '../skills';
 import { withTenant } from '../tenant';
 import { maybeAutoCorrect } from './auto-correct';
-import { frameworkCriteria } from './criteria/framework';
+import { buildBriefingCriteria } from './criteria/briefing';
+import { buildFrameworkCriteria } from './criteria/framework';
 import type { AcceptanceCriteriaSet, CriterionResult } from './criteria/types';
+import { buildUseCasesCriteria } from './criteria/use_cases';
+import { createLoopFlagInTx } from './flags';
 import { toFlagView } from './flags-view';
 import { notifyFlag } from './notify';
 import { resolveAutonomyContext } from './settings';
 import { buildSuggestedActionText, type CorrectionRef } from './suggest';
 import { observationForArtifact } from './sources/deliverable';
+import {
+  parseCriteriaOverrides,
+  resolveFrameworkCriteriaThresholds,
+  resolveUseCasesCriteriaThresholds,
+  type CriteriaOverridesMap,
+} from './thresholds';
 
 const LOOP_ACTOR = 'loop-engine';
 
@@ -24,9 +33,24 @@ export interface DeliverableTrace {
   flagRaised: boolean;
 }
 
-const CRITERIA_BY_TYPE: Record<string, AcceptanceCriteriaSet> = {
-  framework: frameworkCriteria,
-};
+function criteriaForType(
+  type: string,
+  overrides: CriteriaOverridesMap = {},
+): AcceptanceCriteriaSet | null {
+  if (type === 'framework') {
+    return buildFrameworkCriteria(resolveFrameworkCriteriaThresholds(overrides));
+  }
+  if (type === 'use_cases') {
+    return buildUseCasesCriteria(resolveUseCasesCriteriaThresholds(overrides));
+  }
+  if (type === 'briefing') {
+    const o = overrides.briefing;
+    return buildBriefingCriteria({
+      min_length: typeof o?.min_length === 'number' ? o.min_length : undefined,
+    });
+  }
+  return null;
+}
 
 function findArtifactId(state: Record<string, Record<string, unknown>>): string | null {
   for (const stepDetail of Object.values(state)) {
@@ -38,6 +62,8 @@ function findArtifactId(state: Record<string, Record<string, unknown>>): string 
 function findArtifactType(state: Record<string, Record<string, unknown>>): string | null {
   for (const stepDetail of Object.values(state)) {
     if (stepDetail.generiert === true && typeof stepDetail.artifactId === 'string') {
+      // Prefer explicit type on the step detail when present (use_cases skill).
+      if (typeof stepDetail.type === 'string') return stepDetail.type;
       return 'framework';
     }
   }
@@ -64,7 +90,16 @@ export async function evaluateDeliverableCriteria(
   const artifactType = findArtifactType(state);
   if (!artifactType) return null;
 
-  const criteriaSet = CRITERIA_BY_TYPE[artifactType];
+  // Load criteria overrides (short read) before pure checks — outside the flag write.
+  const criteriaOverrides = await withTenant(orgId, async (tx) => {
+    const row = await tx.orgSettings.findUnique({
+      where: { orgId },
+      select: { loopCriteriaOverrides: true },
+    });
+    return parseCriteriaOverrides(row?.loopCriteriaOverrides);
+  });
+
+  const criteriaSet = criteriaForType(artifactType, criteriaOverrides);
   if (!criteriaSet) return null;
 
   // OUTSIDE any transaction: load blob content, build observation, check criteria.
@@ -108,30 +143,42 @@ export async function evaluateDeliverableCriteria(
     if (!flagRaised) return null;
 
     const failed = results.filter((r) => !r.passed);
-    return logAudit(tx, {
+    const detail = {
+      category: 'criteria',
+      type: artifactType,
+      skillKey,
+      runId,
+      failedCriteria: failed.map((r) => ({
+        criterion: r.key,
+        expected: r.detail.expected,
+        actual: r.detail.actual,
+        message: r.detail.message,
+      })),
+      passedCount,
+      failedCount,
+      severity: failedCount >= 3 ? 'critical' : 'warning',
+      // Only present under 'suggest'/'autonomous'; absent under 'report'.
+      ...proposal,
+    };
+    const audit = await logAudit(tx, {
       orgId,
       actorId: LOOP_ACTOR,
       actorType: 'agent',
       action: 'flag.criteria_violated',
       target: artifactId,
-      detail: {
-        category: 'criteria',
-        type: artifactType,
-        skillKey,
-        runId,
-        failedCriteria: failed.map((r) => ({
-          criterion: r.key,
-          expected: r.detail.expected,
-          actual: r.detail.actual,
-          message: r.detail.message,
-        })),
-        passedCount,
-        failedCount,
-        severity: failedCount >= 3 ? 'critical' : 'warning',
-        // Only present under 'suggest'/'autonomous'; absent under 'report'.
-        ...proposal,
-      },
+      detail,
     });
+    await createLoopFlagInTx(tx, {
+      orgId,
+      action: 'flag.criteria_violated',
+      target: artifactId,
+      category: 'criteria',
+      type: artifactType,
+      severity: failedCount >= 3 ? 'critical' : 'warning',
+      detail,
+      auditId: audit.id,
+    });
+    return audit;
   });
 
   // AFTER the commit (best-effort, never touching the flag tx): notify + maybe
